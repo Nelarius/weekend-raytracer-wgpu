@@ -24,8 +24,41 @@ struct VertexOutput {
     @location(0) texCoords: vec2<f32>,
 }
 
+@group(1) @binding(0) var<uniform> imageDimensions: vec2<u32>;
+@group(1) @binding(1) var<storage, read_write> seedBuffer: array<u32>;
+
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
-    let c = vec3(255f, 0f, 255f);
-    return vec4(c, 1f);
+    let u = in.texCoords.x;
+    let v = in.texCoords.y;
+
+    let x = u32(u * f32(imageDimensions.x));
+    let y = u32(v * f32(imageDimensions.y));
+
+    let idx = imageDimensions.x * y + x;
+    var state = seedBuffer[idx];
+
+    let rgb = vec3<f32>(
+        rngNextFloat(&state),
+        rngNextFloat(&state),
+        rngNextFloat(&state)
+    );
+
+    seedBuffer[idx] = state;
+
+    return vec4(rgb, 1f);
+}
+
+fn rngNextInt(state: ptr<function, u32>) {
+    // PCG random number generator
+    // Based on https://www.shadertoy.com/view/XlGcRh
+
+    let oldState = *state + 747796405u + 2891336453u;
+    let word = ((oldState >> ((oldState >> 28u) + 4u)) ^ oldState) * 277803737u;
+    *state = (word >> 22u) ^ word;
+}
+
+fn rngNextFloat(state: ptr<function, u32>) -> f32 {
+    rngNextInt(state);
+    return f32(*state) / f32(0xffffffffu);
 }

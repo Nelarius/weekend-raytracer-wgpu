@@ -7,6 +7,7 @@
 
 pub extern crate nalgebra_glm as glm;
 
+use image_buffers::ImageBuffers;
 use renderer::Renderer;
 use winit::{
     event_loop::{ControlFlow, EventLoop},
@@ -14,6 +15,7 @@ use winit::{
 };
 
 mod gpu_buffer;
+mod image_buffers;
 
 struct GpuContext {
     device: wgpu::Device,
@@ -81,11 +83,13 @@ impl GpuContext {
 
 mod renderer {
     use super::gpu_buffer::UniformBuffer;
+    use super::image_buffers::ImageBuffers;
     use wgpu::util::DeviceExt;
 
     pub struct Renderer {
         uniform_buffer: UniformBuffer,
         uniform_bind_group: wgpu::BindGroup,
+        image_bind_group: wgpu::BindGroup,
         vertex_buffer: wgpu::Buffer,
         pipeline: wgpu::RenderPipeline,
     }
@@ -94,6 +98,7 @@ mod renderer {
         pub fn new(
             device: &wgpu::Device,
             surface_config: &wgpu::SurfaceConfiguration,
+            image_buffers: &ImageBuffers,
             viewport_size: (u32, u32),
         ) -> Self {
             let uniforms = VertexUniforms {
@@ -103,18 +108,40 @@ mod renderer {
             let uniform_buffer = UniformBuffer::new_from_bytes(
                 device,
                 bytemuck::bytes_of(&uniforms),
-                0_u32,
                 Some("uniforms"),
             );
             let uniform_bind_group_layout =
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[uniform_buffer.layout(wgpu::ShaderStages::VERTEX)],
+                    entries: &[uniform_buffer.layout(0, wgpu::ShaderStages::VERTEX)],
                     label: Some("uniforms layout"),
                 });
             let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &uniform_bind_group_layout,
-                entries: &[uniform_buffer.binding()],
+                entries: &[uniform_buffer.binding(0)],
                 label: Some("uniforms bind group"),
+            });
+
+            let image_bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        image_buffers
+                            .image_dimensions_buffer
+                            .layout(0, wgpu::ShaderStages::FRAGMENT),
+                        image_buffers.rng_seed_buffer.layout(
+                            1,
+                            wgpu::ShaderStages::FRAGMENT,
+                            false,
+                        ),
+                    ],
+                    label: Some("image layout"),
+                });
+            let image_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &image_bind_group_layout,
+                entries: &[
+                    image_buffers.image_dimensions_buffer.binding(0),
+                    image_buffers.rng_seed_buffer.binding(1),
+                ],
+                label: Some("image bind group"),
             });
 
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -123,7 +150,7 @@ mod renderer {
             });
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&uniform_bind_group_layout],
+                bind_group_layouts: &[&uniform_bind_group_layout, &image_bind_group_layout],
                 push_constant_ranges: &[],
                 label: Some("quad.wgsl layout"),
             });
@@ -177,6 +204,7 @@ mod renderer {
             Self {
                 uniform_buffer,
                 uniform_bind_group,
+                image_bind_group,
                 pipeline,
                 vertex_buffer,
             }
@@ -185,6 +213,7 @@ mod renderer {
         pub fn run<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.image_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
             let num_vertices = VERTICES.len() as u32;
@@ -284,13 +313,29 @@ fn main() {
         .build(&event_loop)
         .unwrap();
     let mut context = pollster::block_on(GpuContext::new(&window));
+
     let current_viewport_size = {
         let viewport = window.inner_size();
         (viewport.width, viewport.height)
     };
+    let max_viewport_resolution = window
+        .available_monitors()
+        .map(|monitor| -> u32 {
+            let size = monitor.size();
+            size.width * size.height
+        })
+        .max()
+        .expect("There should be at least one monitor available");
+    let image_buffers = ImageBuffers::new(
+        &context.device,
+        current_viewport_size,
+        max_viewport_resolution,
+    );
+
     let renderer = Renderer::new(
         &context.device,
         &context.surface_config,
+        &image_buffers,
         current_viewport_size,
     );
 
