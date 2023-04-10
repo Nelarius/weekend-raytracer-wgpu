@@ -101,7 +101,7 @@ fn main() {
         .max()
         .expect("There should be at least one monitor available");
 
-    let renderer = Raytracer::new(
+    let raytracer = Raytracer::new(
         &context.device,
         &context.surface_config,
         current_viewport_size,
@@ -159,7 +159,7 @@ fn main() {
                         label: None,
                     });
 
-                    renderer.run(&mut render_pass);
+                    raytracer.render_frame(&mut render_pass);
                 }
 
                 context.queue.submit(Some(encoder.finish()));

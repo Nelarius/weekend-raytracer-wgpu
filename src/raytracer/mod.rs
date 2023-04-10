@@ -136,7 +136,7 @@ impl Raytracer {
         }
     }
 
-    pub fn run<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    pub fn render_frame<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.vertex_uniform_bind_group, &[]);
         render_pass.set_bind_group(1, &self.image_bind_group, &[]);
