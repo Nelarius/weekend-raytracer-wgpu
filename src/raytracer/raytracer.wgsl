@@ -1,15 +1,15 @@
 @group(0) @binding(0)
-var<uniform> uniforms: Uniforms;
+var<uniform> vertex_uniforms: VertexUniforms;
 
 @vertex
 fn vsMain(model: VertexInput) -> VertexOutput {
     return VertexOutput(
-        uniforms.viewProjectionMat * uniforms.modelMat * vec4<f32>(model.position, 0.0, 1.0),
+        vertex_uniforms.viewProjectionMat * vertex_uniforms.modelMat * vec4<f32>(model.position, 0.0, 1.0),
         model.texCoords
     );
 }
 
-struct Uniforms {
+struct VertexUniforms {
     viewProjectionMat: mat4x4<f32>,
     modelMat: mat4x4<f32>,
 }
