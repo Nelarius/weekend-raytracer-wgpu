@@ -125,8 +125,6 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
 fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
     let n = (1f / sphere.radius) * (p - sphere.center);
-    let theta = acos(-n.y);
-    let phi = atan2(-n.z, n.x) + PI;
 
     return Intersection(p, n, t);
 }
