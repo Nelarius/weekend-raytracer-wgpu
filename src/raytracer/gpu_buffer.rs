@@ -2,12 +2,14 @@ use wgpu::util::DeviceExt;
 
 pub struct UniformBuffer {
     handle: wgpu::Buffer,
+    binding_idx: u32,
 }
 
 impl UniformBuffer {
     pub fn new(
         device: &wgpu::Device,
         buffer_size: wgpu::BufferAddress,
+        binding_idx: u32,
         label: Option<&str>,
     ) -> Self {
         let handle = device.create_buffer(&wgpu::BufferDescriptor {
@@ -17,30 +19,37 @@ impl UniformBuffer {
             label,
         });
 
-        Self { handle }
+        Self {
+            handle,
+            binding_idx,
+        }
     }
 
-    pub fn new_from_bytes(device: &wgpu::Device, bytes: &[u8], label: Option<&str>) -> Self {
+    pub fn new_from_bytes(
+        device: &wgpu::Device,
+        bytes: &[u8],
+        binding_idx: u32,
+        label: Option<&str>,
+    ) -> Self {
         let handle = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytes,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             label,
         });
 
-        Self { handle }
+        Self {
+            handle,
+            binding_idx,
+        }
     }
 
     pub fn handle(&self) -> &wgpu::Buffer {
         &self.handle
     }
 
-    pub fn layout(
-        &self,
-        binding: u32,
-        visibility: wgpu::ShaderStages,
-    ) -> wgpu::BindGroupLayoutEntry {
+    pub fn layout(&self, visibility: wgpu::ShaderStages) -> wgpu::BindGroupLayoutEntry {
         wgpu::BindGroupLayoutEntry {
-            binding,
+            binding: self.binding_idx,
             visibility,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
@@ -51,9 +60,9 @@ impl UniformBuffer {
         }
     }
 
-    pub fn binding(&self, binding: u32) -> wgpu::BindGroupEntry<'_> {
+    pub fn binding(&self) -> wgpu::BindGroupEntry<'_> {
         wgpu::BindGroupEntry {
-            binding,
+            binding: self.binding_idx,
             resource: self.handle.as_entire_binding(),
         }
     }
@@ -61,17 +70,26 @@ impl UniformBuffer {
 
 pub struct StorageBuffer {
     handle: wgpu::Buffer,
+    binding_idx: u32,
 }
 
 impl StorageBuffer {
-    pub fn new_from_bytes(device: &wgpu::Device, bytes: &[u8], label: Option<&str>) -> Self {
+    pub fn new_from_bytes(
+        device: &wgpu::Device,
+        bytes: &[u8],
+        binding_idx: u32,
+        label: Option<&str>,
+    ) -> Self {
         let handle = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytes,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             label,
         });
 
-        Self { handle }
+        Self {
+            handle,
+            binding_idx,
+        }
     }
 
     pub fn handle(&self) -> &wgpu::Buffer {
@@ -80,12 +98,11 @@ impl StorageBuffer {
 
     pub fn layout(
         &self,
-        binding: u32,
         visibility: wgpu::ShaderStages,
         read_only: bool,
     ) -> wgpu::BindGroupLayoutEntry {
         wgpu::BindGroupLayoutEntry {
-            binding,
+            binding: self.binding_idx,
             visibility,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only },
@@ -96,9 +113,9 @@ impl StorageBuffer {
         }
     }
 
-    pub fn binding(&self, binding: u32) -> wgpu::BindGroupEntry<'_> {
+    pub fn binding(&self) -> wgpu::BindGroupEntry<'_> {
         wgpu::BindGroupEntry {
-            binding,
+            binding: self.binding_idx,
             resource: self.handle.as_entire_binding(),
         }
     }

@@ -7,7 +7,7 @@
 
 pub extern crate nalgebra_glm as glm;
 
-use raytracer::Raytracer;
+use raytracer::{Angle, Camera, Raytracer, Scene, Sphere};
 use winit::{
     event::Event,
     event_loop::{ControlFlow, EventLoop},
@@ -80,10 +80,54 @@ impl GpuContext {
     }
 }
 
+fn scene_and_camera(viewport_size: (u32, u32)) -> (Scene, Camera) {
+    let spheres = vec![
+        Sphere {
+            center: glm::vec3(0.0, -500.0, -1.0),
+            radius: 500.0,
+        },
+        Sphere {
+            center: glm::vec3(0.0, 1.0, 0.0),
+            radius: 1.0,
+        },
+        Sphere {
+            center: glm::vec3(-5.0, 1.0, 0.0),
+            radius: 1.0,
+        },
+        Sphere {
+            center: glm::vec3(5.0, 1.0, 0.0),
+            radius: 1.0,
+        },
+    ];
+
+    let camera = {
+        let look_from = glm::vec3(-10.0, 2.0, -4.0);
+        let look_at = glm::vec3(0.0, 1.0, 0.0);
+        let up = glm::vec3(0.0, 1.0, 0.0);
+        let vfov = Angle::degrees(30_f32);
+        let aperture = 1.0_f32;
+        let aspect = viewport_size.0 as f32 / viewport_size.1 as f32;
+        let focus_distance = glm::magnitude(&(look_at - look_from));
+
+        Camera::new(
+            look_from,
+            look_at - look_from,
+            up,
+            vfov,
+            aspect,
+            aperture,
+            focus_distance,
+        )
+    };
+
+    (Scene { spheres }, camera)
+}
+
 fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("weekend-raytracer-wgpu")
+        .with_inner_size(winit::dpi::PhysicalSize::new(800, 600))
         .build(&event_loop)
         .unwrap();
     let mut context = pollster::block_on(GpuContext::new(&window));
@@ -101,9 +145,13 @@ fn main() {
         .max()
         .expect("There should be at least one monitor available");
 
+    let (scene, camera) = scene_and_camera(current_viewport_size);
+
     let raytracer = Raytracer::new(
         &context.device,
         &context.surface_config,
+        camera,
+        scene,
         current_viewport_size,
         max_viewport_resolution,
     );
