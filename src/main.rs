@@ -156,65 +156,61 @@ fn main() {
         max_viewport_resolution,
     );
 
-    event_loop.run(move |event, _, _control_flow| {
-        *_control_flow = ControlFlow::Wait;
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                winit::event::WindowEvent::CloseRequested => {
-                    *_control_flow = ControlFlow::Exit;
-                }
-                _ => {}
-            },
-
-            Event::MainEventsCleared => {
-                window.request_redraw();
+    event_loop.run(move |event, _, _control_flow| match event {
+        Event::WindowEvent { event, .. } => match event {
+            winit::event::WindowEvent::CloseRequested => {
+                *_control_flow = ControlFlow::Exit;
             }
-
-            Event::RedrawRequested(window_id) if window_id == window.id() => {
-                let frame = match context.surface.get_current_texture() {
-                    Ok(frame) => frame,
-                    Err(e) => {
-                        eprintln!("Surface error: {:?}", e);
-                        return;
-                    }
-                };
-
-                let view = frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                let mut encoder = context
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.012,
-                                    g: 0.012,
-                                    b: 0.012,
-                                    a: 1.0,
-                                }),
-                                store: true,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        label: None,
-                    });
-
-                    raytracer.render_frame(&mut render_pass);
-                }
-
-                context.queue.submit(Some(encoder.finish()));
-                frame.present();
-            }
-
             _ => {}
+        },
+
+        Event::MainEventsCleared => {
+            window.request_redraw();
         }
+
+        Event::RedrawRequested(window_id) if window_id == window.id() => {
+            let frame = match context.surface.get_current_texture() {
+                Ok(frame) => frame,
+                Err(e) => {
+                    eprintln!("Surface error: {:?}", e);
+                    return;
+                }
+            };
+
+            let view = frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+            let mut encoder = context
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.012,
+                                g: 0.012,
+                                b: 0.012,
+                                a: 1.0,
+                            }),
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    label: None,
+                });
+
+                raytracer.render_frame(&mut render_pass);
+            }
+
+            context.queue.submit(Some(encoder.finish()));
+            frame.present();
+        }
+
+        _ => {}
     });
 }
