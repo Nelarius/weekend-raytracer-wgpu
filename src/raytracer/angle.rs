@@ -1,3 +1,4 @@
+#[derive(Clone, Copy, PartialEq)]
 pub struct Angle {
     radians: f32,
 }

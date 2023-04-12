@@ -7,9 +7,9 @@
 
 pub extern crate nalgebra_glm as glm;
 
-use raytracer::{Angle, Camera, Raytracer, Scene, Sphere};
+use raytracer::{Angle, Camera, Raytracer, RenderParams, Scene, Sphere};
 use winit::{
-    event::Event,
+    event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
@@ -80,7 +80,7 @@ impl GpuContext {
     }
 }
 
-fn scene_and_camera(viewport_size: (u32, u32)) -> (Scene, Camera) {
+fn scene_and_camera() -> (Scene, Camera) {
     let spheres = vec![
         Sphere {
             center: glm::vec3(0.0, -500.0, -1.0),
@@ -106,18 +106,16 @@ fn scene_and_camera(viewport_size: (u32, u32)) -> (Scene, Camera) {
         let up = glm::vec3(0.0, 1.0, 0.0);
         let vfov = Angle::degrees(30_f32);
         let aperture = 1.0_f32;
-        let aspect = viewport_size.0 as f32 / viewport_size.1 as f32;
         let focus_distance = glm::magnitude(&(look_at - look_from));
 
-        Camera::new(
-            look_from,
-            look_at - look_from,
+        Camera {
+            eye_pos: look_from,
+            eye_dir: look_at - look_from,
             up,
             vfov,
-            aspect,
             aperture,
             focus_distance,
-        )
+        }
     };
 
     (Scene { spheres }, camera)
@@ -132,7 +130,7 @@ fn main() {
         .unwrap();
     let mut context = pollster::block_on(GpuContext::new(&window));
 
-    let current_viewport_size = {
+    let viewport_size = {
         let viewport = window.inner_size();
         (viewport.width, viewport.height)
     };
@@ -145,26 +143,50 @@ fn main() {
         .max()
         .expect("There should be at least one monitor available");
 
-    let (scene, camera) = scene_and_camera(current_viewport_size);
+    let (scene, camera) = scene_and_camera();
+    let mut render_params = RenderParams {
+        camera,
+        viewport_size,
+    };
 
-    let raytracer = Raytracer::new(
+    let mut raytracer = Raytracer::new(
         &context.device,
         &context.surface_config,
-        camera,
         scene,
-        current_viewport_size,
+        render_params,
         max_viewport_resolution,
     );
 
     event_loop.run(move |event, _, _control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
-            winit::event::WindowEvent::CloseRequested => {
+            WindowEvent::CloseRequested => {
                 *_control_flow = ControlFlow::Exit;
             }
+
+            WindowEvent::Resized(physical_size) => {
+                render_params.viewport_size = (physical_size.width, physical_size.height);
+                context.surface_config.width = physical_size.width;
+                context.surface_config.height = physical_size.height;
+                context
+                    .surface
+                    .configure(&context.device, &context.surface_config);
+            }
+
+            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                render_params.viewport_size = (new_inner_size.width, new_inner_size.height);
+                context.surface_config.width = new_inner_size.width;
+                context.surface_config.height = new_inner_size.height;
+                context
+                    .surface
+                    .configure(&context.device, &context.surface_config);
+            }
+
             _ => {}
         },
 
         Event::MainEventsCleared => {
+            raytracer.set_render_params(&context.queue, render_params);
+
             window.request_redraw();
         }
 

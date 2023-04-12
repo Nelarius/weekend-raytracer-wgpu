@@ -9,19 +9,20 @@ pub struct Raytracer {
     vertex_uniform_buffer: UniformBuffer,
     vertex_uniform_bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
+    image_dimensions_buffer: UniformBuffer,
     image_bind_group: wgpu::BindGroup,
     camera_buffer: UniformBuffer,
     scene_bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
+    latest_render_params: RenderParams,
 }
 
 impl Raytracer {
     pub fn new(
         device: &wgpu::Device,
         surface_config: &wgpu::SurfaceConfiguration,
-        camera: Camera,
         scene: Scene,
-        viewport_size: (u32, u32),
+        render_params: RenderParams,
         max_viewport_resolution: u32,
     ) -> Self {
         let uniforms = VertexUniforms {
@@ -46,7 +47,7 @@ impl Raytracer {
         });
 
         let image_dimensions_buffer = {
-            let image_dimensions = [viewport_size.0, viewport_size.1];
+            let image_dimensions = [render_params.viewport_size.0, render_params.viewport_size.1];
             UniformBuffer::new_from_bytes(
                 device,
                 bytemuck::bytes_of(&image_dimensions),
@@ -65,12 +66,16 @@ impl Raytracer {
             )
         };
 
-        let camera_buffer = UniformBuffer::new_from_bytes(
-            device,
-            bytemuck::bytes_of(&camera),
-            0_u32,
-            Some("camera buffer"),
-        );
+        let camera_buffer = {
+            let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
+
+            UniformBuffer::new_from_bytes(
+                device,
+                bytemuck::bytes_of(&camera),
+                0_u32,
+                Some("camera buffer"),
+            )
+        };
         let sphere_buffer = StorageBuffer::new_from_bytes(
             device,
             bytemuck::cast_slice(scene.spheres.as_slice()),
@@ -172,11 +177,13 @@ impl Raytracer {
         Self {
             vertex_uniform_buffer,
             vertex_uniform_bind_group,
+            image_dimensions_buffer,
             image_bind_group,
             camera_buffer,
             scene_bind_group,
             vertex_buffer,
             pipeline,
+            latest_render_params: render_params,
         }
     }
 
@@ -189,6 +196,27 @@ impl Raytracer {
 
         let num_vertices = VERTICES.len() as u32;
         render_pass.draw(0..num_vertices, 0..1);
+    }
+
+    pub fn set_render_params(&mut self, queue: &wgpu::Queue, render_params: RenderParams) {
+        if render_params == self.latest_render_params {
+            return;
+        }
+
+        self.latest_render_params = render_params;
+
+        {
+            let image_dimensions = [render_params.viewport_size.0, render_params.viewport_size.1];
+            queue.write_buffer(
+                &self.image_dimensions_buffer.handle(),
+                0,
+                bytemuck::bytes_of(&image_dimensions),
+            );
+        }
+        {
+            let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
+            queue.write_buffer(&self.camera_buffer.handle(), 0, bytemuck::bytes_of(&camera));
+        }
     }
 }
 
@@ -203,9 +231,25 @@ pub struct Sphere {
     pub radius: f32,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub struct RenderParams {
+    pub camera: Camera,
+    pub viewport_size: (u32, u32),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct Camera {
+    pub eye_pos: glm::Vec3,
+    pub eye_dir: glm::Vec3,
+    pub up: glm::Vec3,
+    pub vfov: Angle,
+    pub aperture: f32,
+    pub focus_distance: f32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Camera {
+pub struct GpuCamera {
     eye: glm::Vec3,
     _padding1: f32,
     horizontal: glm::Vec3,
@@ -220,31 +264,25 @@ pub struct Camera {
     _padding5: f32,
 }
 
-impl Camera {
-    pub fn new(
-        eye_pos: glm::Vec3,
-        eye_dir: glm::Vec3,
-        up: glm::Vec3,
-        vfov: Angle,
-        aspect: f32,
-        aperture: f32,
-        focus_distance: f32,
-    ) -> Self {
-        let lens_radius = 0.5_f32 * aperture;
-        let theta = vfov.as_radians();
-        let half_height = focus_distance * (0.5_f32 * theta).tan();
+impl GpuCamera {
+    pub fn new(camera: &Camera, viewport_size: (u32, u32)) -> Self {
+        let lens_radius = 0.5_f32 * camera.aperture;
+        let theta = camera.vfov.as_radians();
+        let aspect = viewport_size.0 as f32 / viewport_size.1 as f32;
+        let half_height = camera.focus_distance * (0.5_f32 * theta).tan();
         let half_width = aspect * half_height;
 
-        let w = glm::normalize(&eye_dir);
-        let v = glm::normalize(&up);
+        let w = glm::normalize(&camera.eye_dir);
+        let v = glm::normalize(&camera.up);
         let u = glm::cross(&w, &v);
 
-        let lower_left_corner = eye_pos + focus_distance * w - half_width * u - half_height * v;
+        let lower_left_corner =
+            camera.eye_pos + camera.focus_distance * w - half_width * u - half_height * v;
         let horizontal = 2_f32 * half_width * u;
         let vertical = 2_f32 * half_height * v;
 
         Self {
-            eye: eye_pos,
+            eye: camera.eye_pos,
             _padding1: 0_f32,
             horizontal,
             _padding2: 0_f32,
