@@ -164,21 +164,25 @@ fn main() {
             }
 
             WindowEvent::Resized(physical_size) => {
-                render_params.viewport_size = (physical_size.width, physical_size.height);
-                context.surface_config.width = physical_size.width;
-                context.surface_config.height = physical_size.height;
-                context
-                    .surface
-                    .configure(&context.device, &context.surface_config);
+                if physical_size.width > 0 && physical_size.height > 0 {
+                    render_params.viewport_size = (physical_size.width, physical_size.height);
+                    context.surface_config.width = physical_size.width;
+                    context.surface_config.height = physical_size.height;
+                    context
+                        .surface
+                        .configure(&context.device, &context.surface_config);
+                }
             }
 
             WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                render_params.viewport_size = (new_inner_size.width, new_inner_size.height);
-                context.surface_config.width = new_inner_size.width;
-                context.surface_config.height = new_inner_size.height;
-                context
-                    .surface
-                    .configure(&context.device, &context.surface_config);
+                if new_inner_size.width > 0 && new_inner_size.height > 0 {
+                    render_params.viewport_size = (new_inner_size.width, new_inner_size.height);
+                    context.surface_config.width = new_inner_size.width;
+                    context.surface_config.height = new_inner_size.height;
+                    context
+                        .surface
+                        .configure(&context.device, &context.surface_config);
+                }
             }
 
             _ => {}
