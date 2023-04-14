@@ -7,9 +7,11 @@
 
 pub extern crate nalgebra_glm as glm;
 
-use raytracer::{Angle, Camera, Raytracer, RenderParams, Scene, Sphere};
+use fly_camera::{FlyCamera, FlyCameraControlState};
+use raytracer::{Raytracer, RenderParams, Scene, Sphere};
+use std::time::Instant;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
@@ -80,7 +82,142 @@ impl GpuContext {
     }
 }
 
-fn scene_and_camera() -> (Scene, Camera) {
+mod fly_camera {
+    use crate::raytracer::{Angle, Camera};
+
+    pub struct FlyCamera {
+        pub position: glm::Vec3,
+        pub yaw: Angle,
+        pub pitch: Angle,
+        pub vfov_degrees: f32,
+        pub aperture: f32,
+        pub focus_distance: f32,
+    }
+
+    impl Default for FlyCamera {
+        fn default() -> Self {
+            let look_from = glm::vec3(-10.0, 2.0, -4.0);
+            let look_at = glm::vec3(0.0, 1.0, 0.0);
+            let focus_distance = glm::magnitude(&(look_at - look_from));
+
+            Self {
+                position: look_from,
+                yaw: Angle::degrees(15_f32),
+                pitch: Angle::degrees(-10_f32),
+                vfov_degrees: 30.0,
+                aperture: 1.0,
+                focus_distance,
+            }
+        }
+    }
+
+    impl FlyCamera {
+        pub fn translate(&mut self, delta: glm::Vec3) {
+            let orientation = self.axes();
+            self.position += orientation.right * delta.x
+                + orientation.up * delta.y
+                + orientation.forward * delta.z;
+        }
+
+        pub fn rotate(&mut self, deltas: EulerAngles) {
+            self.yaw = self.yaw + deltas.yaw;
+            self.pitch = self.pitch + deltas.pitch;
+        }
+
+        pub fn renderer_camera(&self) -> Camera {
+            let orientation = self.axes();
+            Camera {
+                eye_pos: self.position,
+                eye_dir: orientation.forward,
+                up: orientation.up,
+                vfov: Angle::degrees(self.vfov_degrees),
+                aperture: self.aperture,
+                focus_distance: self.focus_distance,
+            }
+        }
+
+        fn axes(&self) -> Orientation {
+            let forward = glm::normalize(&glm::vec3(
+                self.yaw.as_radians().cos() * self.pitch.as_radians().cos(),
+                self.pitch.as_radians().sin(),
+                self.yaw.as_radians().sin() * self.pitch.as_radians().cos(),
+            ));
+            let up = glm::vec3(0.0, 1.0, 0.0);
+            let right = glm::cross(&forward, &up);
+            Orientation { forward, right, up }
+        }
+    }
+
+    pub struct FlyCameraControlState {
+        pub forward_pressed: bool,
+        pub backward_pressed: bool,
+        pub left_pressed: bool,
+        pub right_pressed: bool,
+        pub up_pressed: bool,
+        pub down_pressed: bool,
+        pub look_pressed: bool,
+        pub previous_mouse_pos: Option<(f32, f32)>,
+        pub mouse_delta: (f32, f32),
+    }
+
+    impl Default for FlyCameraControlState {
+        fn default() -> Self {
+            Self {
+                forward_pressed: false,
+                backward_pressed: false,
+                left_pressed: false,
+                right_pressed: false,
+                up_pressed: false,
+                down_pressed: false,
+                look_pressed: false,
+                previous_mouse_pos: None,
+                mouse_delta: (0.0, 0.0),
+            }
+        }
+    }
+
+    impl FlyCameraControlState {
+        pub fn translation(&self, s: f32) -> glm::Vec3 {
+            let v = |b| if b { 1_f32 } else { 0_f32 };
+            glm::vec3(
+                s * (v(self.right_pressed) - v(self.left_pressed)),
+                s * (v(self.up_pressed) - v(self.down_pressed)),
+                s * (v(self.forward_pressed) - v(self.backward_pressed)),
+            )
+        }
+
+        pub fn rotation(&self, s: f32) -> EulerAngles {
+            if self.look_pressed {
+                EulerAngles {
+                    yaw: Angle::radians(-s * 0.5 * self.mouse_delta.0),
+                    pitch: Angle::radians(-s * 0.5 * self.mouse_delta.1),
+                }
+            } else {
+                EulerAngles {
+                    yaw: Angle::radians(0.0),
+                    pitch: Angle::radians(0.0),
+                }
+            }
+        }
+
+        pub fn begin_frame(&mut self) {
+            self.mouse_delta = (0.0, 0.0);
+        }
+    }
+
+    struct Orientation {
+        forward: glm::Vec3,
+        right: glm::Vec3,
+        up: glm::Vec3,
+    }
+
+    pub struct EulerAngles {
+        yaw: Angle,
+        pitch: Angle,
+    }
+}
+
+fn scene() -> Scene {
     let spheres = vec![
         Sphere {
             center: glm::vec3(0.0, -500.0, -1.0),
@@ -100,25 +237,7 @@ fn scene_and_camera() -> (Scene, Camera) {
         },
     ];
 
-    let camera = {
-        let look_from = glm::vec3(-10.0, 2.0, -4.0);
-        let look_at = glm::vec3(0.0, 1.0, 0.0);
-        let up = glm::vec3(0.0, 1.0, 0.0);
-        let vfov = Angle::degrees(30_f32);
-        let aperture = 1.0_f32;
-        let focus_distance = glm::magnitude(&(look_at - look_from));
-
-        Camera {
-            eye_pos: look_from,
-            eye_dir: look_at - look_from,
-            up,
-            vfov,
-            aperture,
-            focus_distance,
-        }
-    };
-
-    (Scene { spheres }, camera)
+    Scene { spheres }
 }
 
 fn main() {
@@ -143,12 +262,14 @@ fn main() {
         .max()
         .expect("There should be at least one monitor available");
 
-    let (scene, camera) = scene_and_camera();
+    let scene = scene();
+    let mut fly_camera_control_state = FlyCameraControlState::default();
+    let mut fly_camera = FlyCamera::default();
+
     let mut render_params = RenderParams {
-        camera,
+        camera: fly_camera.renderer_camera(),
         viewport_size,
     };
-
     let mut raytracer = Raytracer::new(
         &context.device,
         &context.surface_config,
@@ -157,11 +278,68 @@ fn main() {
         max_viewport_resolution,
     );
 
+    let mut last_time = Instant::now();
+
     event_loop.run(move |event, _, _control_flow| match event {
+        Event::NewEvents(_) => {
+            fly_camera_control_state.begin_frame();
+        }
+
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::CloseRequested => {
                 *_control_flow = ControlFlow::Exit;
             }
+
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
+                ..
+            } => {
+                let is_pressed = state == ElementState::Pressed;
+                match keycode {
+                    VirtualKeyCode::W => {
+                        fly_camera_control_state.forward_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::S => {
+                        fly_camera_control_state.backward_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::A => {
+                        fly_camera_control_state.left_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::D => {
+                        fly_camera_control_state.right_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::Q => {
+                        fly_camera_control_state.down_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::E => {
+                        fly_camera_control_state.up_pressed = is_pressed;
+                    }
+                    _ => {}
+                }
+            }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                let position = (position.x as f32, position.y as f32);
+                if let Some(previous_position) = fly_camera_control_state.previous_mouse_pos {
+                    fly_camera_control_state.mouse_delta = (
+                        position.0 - previous_position.0,
+                        previous_position.1 - position.1,
+                    );
+                }
+                fly_camera_control_state.previous_mouse_pos = Some(position);
+            }
+
+            WindowEvent::MouseInput { button, state, .. } => match button {
+                MouseButton::Right => {
+                    fly_camera_control_state.look_pressed = state == ElementState::Pressed;
+                }
+                _ => (),
+            },
 
             WindowEvent::Resized(physical_size) => {
                 if physical_size.width > 0 && physical_size.height > 0 {
@@ -189,6 +367,15 @@ fn main() {
         },
 
         Event::MainEventsCleared => {
+            {
+                let dt = last_time.elapsed().as_secs_f32();
+                last_time = Instant::now();
+
+                fly_camera.translate(fly_camera_control_state.translation(2.0 * dt));
+                fly_camera.rotate(fly_camera_control_state.rotation(0.5 * dt));
+            }
+
+            render_params.camera = fly_camera.renderer_camera();
             raytracer.set_render_params(&context.queue, render_params);
 
             window.request_redraw();

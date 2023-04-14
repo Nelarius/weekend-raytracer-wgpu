@@ -27,6 +27,16 @@ impl Angle {
     }
 }
 
+impl std::ops::Add for Angle {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            radians: self.radians + rhs.radians,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -41,5 +51,13 @@ mod tests {
     fn test_angle_to_degrees() {
         let angle = Angle::radians(std::f32::consts::FRAC_PI_2);
         assert_eq!(angle.as_degrees(), 90_f32);
+    }
+
+    #[test]
+    fn test_angle_add() {
+        let lhs = Angle::degrees(90_f32);
+        let rhs = Angle::degrees(90_f32);
+        let result = lhs + rhs;
+        assert_eq!(result.as_degrees(), 180_f32);
     }
 }
