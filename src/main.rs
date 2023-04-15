@@ -7,11 +7,11 @@
 
 pub extern crate nalgebra_glm as glm;
 
-use fly_camera::{FlyCamera, FlyCameraControlState};
+use fly_camera::FlyCameraController;
 use raytracer::{Raytracer, RenderParams, Scene, Sphere};
 use std::time::Instant;
 use winit::{
-    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
+    event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
@@ -41,11 +41,10 @@ fn main() {
         .expect("There should be at least one monitor available");
 
     let scene = scene();
-    let mut fly_camera_control_state = FlyCameraControlState::default();
-    let mut fly_camera = FlyCamera::default();
+    let mut fly_camera_controller = FlyCameraController::default();
 
     let mut render_params = RenderParams {
-        camera: fly_camera.renderer_camera(),
+        camera: fly_camera_controller.renderer_camera(),
         viewport_size,
     };
     let mut raytracer = Raytracer::new(
@@ -60,100 +59,51 @@ fn main() {
 
     event_loop.run(move |event, _, _control_flow| match event {
         Event::NewEvents(_) => {
-            fly_camera_control_state.begin_frame();
+            fly_camera_controller.begin_frame();
         }
 
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::CloseRequested => {
-                *_control_flow = ControlFlow::Exit;
-            }
-
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                let is_pressed = state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::W => {
-                        fly_camera_control_state.forward_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::S => {
-                        fly_camera_control_state.backward_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::A => {
-                        fly_camera_control_state.left_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::D => {
-                        fly_camera_control_state.right_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::Q => {
-                        fly_camera_control_state.down_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::E => {
-                        fly_camera_control_state.up_pressed = is_pressed;
-                    }
-                    _ => {}
+        Event::WindowEvent { event, .. } => {
+            fly_camera_controller.handle_event(&event);
+            match event {
+                WindowEvent::CloseRequested => {
+                    *_control_flow = ControlFlow::Exit;
                 }
-            }
 
-            WindowEvent::CursorMoved { position, .. } => {
-                let position = (position.x as f32, position.y as f32);
-                if let Some(previous_position) = fly_camera_control_state.previous_mouse_pos {
-                    fly_camera_control_state.mouse_delta = (
-                        position.0 - previous_position.0,
-                        previous_position.1 - position.1,
-                    );
+                WindowEvent::Resized(physical_size) => {
+                    if physical_size.width > 0 && physical_size.height > 0 {
+                        render_params.viewport_size = (physical_size.width, physical_size.height);
+                        context.surface_config.width = physical_size.width;
+                        context.surface_config.height = physical_size.height;
+                        context
+                            .surface
+                            .configure(&context.device, &context.surface_config);
+                    }
                 }
-                fly_camera_control_state.previous_mouse_pos = Some(position);
-            }
 
-            WindowEvent::MouseInput { button, state, .. } => match button {
-                MouseButton::Right => {
-                    fly_camera_control_state.look_pressed = state == ElementState::Pressed;
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    if new_inner_size.width > 0 && new_inner_size.height > 0 {
+                        render_params.viewport_size = (new_inner_size.width, new_inner_size.height);
+                        context.surface_config.width = new_inner_size.width;
+                        context.surface_config.height = new_inner_size.height;
+                        context
+                            .surface
+                            .configure(&context.device, &context.surface_config);
+                    }
                 }
-                _ => (),
-            },
 
-            WindowEvent::Resized(physical_size) => {
-                if physical_size.width > 0 && physical_size.height > 0 {
-                    render_params.viewport_size = (physical_size.width, physical_size.height);
-                    context.surface_config.width = physical_size.width;
-                    context.surface_config.height = physical_size.height;
-                    context
-                        .surface
-                        .configure(&context.device, &context.surface_config);
-                }
+                _ => {}
             }
-
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                    render_params.viewport_size = (new_inner_size.width, new_inner_size.height);
-                    context.surface_config.width = new_inner_size.width;
-                    context.surface_config.height = new_inner_size.height;
-                    context
-                        .surface
-                        .configure(&context.device, &context.surface_config);
-                }
-            }
-
-            _ => {}
-        },
+        }
 
         Event::MainEventsCleared => {
             {
                 let dt = last_time.elapsed().as_secs_f32();
                 last_time = Instant::now();
 
-                fly_camera.translate(fly_camera_control_state.translation(2.0 * dt));
-                fly_camera.rotate(fly_camera_control_state.rotation(0.5 * dt));
+                fly_camera_controller.update(2.0 * dt, 0.25 * dt);
             }
 
-            render_params.camera = fly_camera.renderer_camera();
+            render_params.camera = fly_camera_controller.renderer_camera();
             raytracer.set_render_params(&context.queue, render_params);
 
             window.request_redraw();
@@ -271,18 +221,30 @@ impl GpuContext {
 }
 
 mod fly_camera {
+    use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
+
     use crate::raytracer::{Angle, Camera};
 
-    pub struct FlyCamera {
+    pub struct FlyCameraController {
         pub position: glm::Vec3,
         pub yaw: Angle,
         pub pitch: Angle,
         pub vfov_degrees: f32,
         pub aperture: f32,
         pub focus_distance: f32,
+
+        pub forward_pressed: bool,
+        pub backward_pressed: bool,
+        pub left_pressed: bool,
+        pub right_pressed: bool,
+        pub up_pressed: bool,
+        pub down_pressed: bool,
+        pub look_pressed: bool,
+        pub previous_mouse_pos: Option<(f32, f32)>,
+        pub mouse_delta: (f32, f32),
     }
 
-    impl Default for FlyCamera {
+    impl Default for FlyCameraController {
         fn default() -> Self {
             let look_from = glm::vec3(-10.0, 2.0, -4.0);
             let look_at = glm::vec3(0.0, 1.0, 0.0);
@@ -295,23 +257,20 @@ mod fly_camera {
                 vfov_degrees: 30.0,
                 aperture: 1.0,
                 focus_distance,
+                forward_pressed: false,
+                backward_pressed: false,
+                left_pressed: false,
+                right_pressed: false,
+                up_pressed: false,
+                down_pressed: false,
+                look_pressed: false,
+                previous_mouse_pos: None,
+                mouse_delta: (0.0, 0.0),
             }
         }
     }
 
-    impl FlyCamera {
-        pub fn translate(&mut self, delta: glm::Vec3) {
-            let orientation = self.axes();
-            self.position += orientation.right * delta.x
-                + orientation.up * delta.y
-                + orientation.forward * delta.z;
-        }
-
-        pub fn rotate(&mut self, deltas: EulerAngles) {
-            self.yaw = self.yaw + deltas.yaw;
-            self.pitch = self.pitch + deltas.pitch;
-        }
-
+    impl FlyCameraController {
         pub fn renderer_camera(&self) -> Camera {
             let orientation = self.axes();
             Camera {
@@ -321,6 +280,96 @@ mod fly_camera {
                 vfov: Angle::degrees(self.vfov_degrees),
                 aperture: self.aperture,
                 focus_distance: self.focus_distance,
+            }
+        }
+
+        pub fn begin_frame(&mut self) {
+            self.mouse_delta = (0.0, 0.0);
+        }
+
+        pub fn handle_event(&mut self, event: &WindowEvent<'_>) {
+            match event {
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state,
+                            virtual_keycode: Some(keycode),
+                            ..
+                        },
+                    ..
+                } => {
+                    let is_pressed = *state == ElementState::Pressed;
+                    match keycode {
+                        VirtualKeyCode::W => {
+                            self.forward_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::S => {
+                            self.backward_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::A => {
+                            self.left_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::D => {
+                            self.right_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::Q => {
+                            self.down_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::E => {
+                            self.up_pressed = is_pressed;
+                        }
+                        _ => {}
+                    }
+                }
+
+                WindowEvent::CursorMoved { position, .. } => {
+                    let position = (position.x as f32, position.y as f32);
+                    if let Some(previous_position) = self.previous_mouse_pos {
+                        self.mouse_delta = (
+                            position.0 - previous_position.0,
+                            previous_position.1 - position.1,
+                        );
+                    }
+                    self.previous_mouse_pos = Some(position);
+                }
+
+                WindowEvent::MouseInput { button, state, .. } => match button {
+                    MouseButton::Right => {
+                        self.look_pressed = *state == ElementState::Pressed;
+                    }
+                    _ => {}
+                },
+
+                _ => {}
+            }
+        }
+
+        pub fn update(&mut self, translation_scale: f32, rotation_scale: f32) {
+            {
+                let v = |b| if b { 1_f32 } else { 0_f32 };
+                let translation = glm::vec3(
+                    translation_scale * (v(self.right_pressed) - v(self.left_pressed)),
+                    translation_scale * (v(self.up_pressed) - v(self.down_pressed)),
+                    translation_scale * (v(self.forward_pressed) - v(self.backward_pressed)),
+                );
+
+                let orientation = self.axes();
+                self.position += orientation.right * translation.x
+                    + orientation.up * translation.y
+                    + orientation.forward * translation.z;
+            }
+
+            {
+                let rotation = if self.look_pressed {
+                    (
+                        Angle::radians(-rotation_scale * self.mouse_delta.0),
+                        Angle::radians(-rotation_scale * self.mouse_delta.1),
+                    )
+                } else {
+                    (Angle::radians(0.0), Angle::radians(0.0))
+                };
+                self.yaw = self.yaw + rotation.0;
+                self.pitch = self.pitch + rotation.1;
             }
         }
 
@@ -336,72 +385,10 @@ mod fly_camera {
         }
     }
 
-    pub struct FlyCameraControlState {
-        pub forward_pressed: bool,
-        pub backward_pressed: bool,
-        pub left_pressed: bool,
-        pub right_pressed: bool,
-        pub up_pressed: bool,
-        pub down_pressed: bool,
-        pub look_pressed: bool,
-        pub previous_mouse_pos: Option<(f32, f32)>,
-        pub mouse_delta: (f32, f32),
-    }
-
-    impl Default for FlyCameraControlState {
-        fn default() -> Self {
-            Self {
-                forward_pressed: false,
-                backward_pressed: false,
-                left_pressed: false,
-                right_pressed: false,
-                up_pressed: false,
-                down_pressed: false,
-                look_pressed: false,
-                previous_mouse_pos: None,
-                mouse_delta: (0.0, 0.0),
-            }
-        }
-    }
-
-    impl FlyCameraControlState {
-        pub fn translation(&self, s: f32) -> glm::Vec3 {
-            let v = |b| if b { 1_f32 } else { 0_f32 };
-            glm::vec3(
-                s * (v(self.right_pressed) - v(self.left_pressed)),
-                s * (v(self.up_pressed) - v(self.down_pressed)),
-                s * (v(self.forward_pressed) - v(self.backward_pressed)),
-            )
-        }
-
-        pub fn rotation(&self, s: f32) -> EulerAngles {
-            if self.look_pressed {
-                EulerAngles {
-                    yaw: Angle::radians(-s * 0.5 * self.mouse_delta.0),
-                    pitch: Angle::radians(-s * 0.5 * self.mouse_delta.1),
-                }
-            } else {
-                EulerAngles {
-                    yaw: Angle::radians(0.0),
-                    pitch: Angle::radians(0.0),
-                }
-            }
-        }
-
-        pub fn begin_frame(&mut self) {
-            self.mouse_delta = (0.0, 0.0);
-        }
-    }
-
     struct Orientation {
         forward: glm::Vec3,
         right: glm::Vec3,
         up: glm::Vec3,
-    }
-
-    pub struct EulerAngles {
-        yaw: Angle,
-        pitch: Angle,
     }
 }
 
