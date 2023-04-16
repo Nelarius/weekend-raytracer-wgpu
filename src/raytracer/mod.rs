@@ -6,7 +6,6 @@ mod angle;
 mod gpu_buffer;
 
 pub struct Raytracer {
-    vertex_uniform_buffer: UniformBuffer,
     vertex_uniform_bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
     image_dimensions_buffer: UniformBuffer,
@@ -175,7 +174,6 @@ impl Raytracer {
         });
 
         Self {
-            vertex_uniform_buffer,
             vertex_uniform_bind_group,
             image_dimensions_buffer,
             image_bind_group,
