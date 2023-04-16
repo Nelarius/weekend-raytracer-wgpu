@@ -51,8 +51,8 @@ fn main() {
     let mut raytracer = Raytracer::new(
         &context.device,
         &context.surface_config,
-        scene,
-        render_params,
+        &scene,
+        &render_params,
         max_viewport_resolution,
     );
 
@@ -101,7 +101,7 @@ fn main() {
                 let dt = last_time.elapsed().as_secs_f32();
                 last_time = Instant::now();
 
-                fly_camera_controller.update(2.0 * dt, 0.25 * dt);
+                fly_camera_controller.update(&scene, render_params.viewport_size, 2.0 * dt, dt);
             }
 
             render_params.camera = fly_camera_controller.renderer_camera();

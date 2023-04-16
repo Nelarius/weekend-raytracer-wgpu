@@ -21,8 +21,8 @@ impl Raytracer {
     pub fn new(
         device: &wgpu::Device,
         surface_config: &wgpu::SurfaceConfiguration,
-        scene: Scene,
-        render_params: RenderParams,
+        scene: &Scene,
+        render_params: &RenderParams,
         max_viewport_resolution: u32,
     ) -> Self {
         let uniforms = VertexUniforms {
@@ -183,7 +183,7 @@ impl Raytracer {
             scene_bind_group,
             vertex_buffer,
             pipeline,
-            latest_render_params: render_params,
+            latest_render_params: *render_params,
         }
     }
 
@@ -267,8 +267,8 @@ pub struct GpuCamera {
 impl GpuCamera {
     pub fn new(camera: &Camera, viewport_size: (u32, u32)) -> Self {
         let lens_radius = 0.5_f32 * camera.aperture;
-        let theta = camera.vfov.as_radians();
         let aspect = viewport_size.0 as f32 / viewport_size.1 as f32;
+        let theta = camera.vfov.as_radians();
         let half_height = camera.focus_distance * (0.5_f32 * theta).tan();
         let half_width = aspect * half_height;
 
