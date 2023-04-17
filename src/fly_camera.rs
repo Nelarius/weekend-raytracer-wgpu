@@ -247,10 +247,10 @@ fn ray_intersect_scene(ray: Ray, scene: &Scene) -> Option<glm::Vec3> {
 }
 
 fn ray_intersect_sphere(ray: Ray, sphere: &Sphere, tmin: f32, tmax: f32) -> Option<glm::Vec3> {
-    let oc = ray.origin - sphere.center;
+    let oc = ray.origin - sphere.center();
     let a = glm::dot(&ray.direction, &ray.direction);
     let b = glm::dot(&oc, &ray.direction);
-    let c = glm::dot(&oc, &oc) - sphere.radius * sphere.radius;
+    let c = glm::dot(&oc, &oc) - sphere.radius() * sphere.radius();
     let discriminant = b * b - a * c;
 
     if discriminant > 0_f32 {

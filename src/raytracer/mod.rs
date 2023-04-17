@@ -75,25 +75,54 @@ impl Raytracer {
                 Some("camera buffer"),
             )
         };
-        let sphere_buffer = StorageBuffer::new_from_bytes(
-            device,
-            bytemuck::cast_slice(scene.spheres.as_slice()),
-            1_u32,
-            Some("scene buffer"),
-        );
-        let scene_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+
+        let (scene_bind_group_layout, scene_bind_group) = {
+            let sphere_buffer = StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::cast_slice(scene.spheres.as_slice()),
+                1_u32,
+                Some("scene buffer"),
+            );
+
+            let materials = scene
+                .materials
+                .iter()
+                .map(|material| match material {
+                    Material::Lambertian { albedo } => GpuMaterial::lambertian(*albedo),
+                    Material::Metal { albedo, fuzz } => GpuMaterial::metal(*albedo, *fuzz),
+                    Material::Dielectric { refraction_index } => {
+                        GpuMaterial::dielectric(*refraction_index)
+                    }
+                })
+                .collect::<Vec<_>>();
+            let material_buffer = StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::cast_slice(materials.as_slice()),
+                2_u32,
+                Some("material buffer"),
+            );
+
+            let scene_bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        camera_buffer.layout(wgpu::ShaderStages::FRAGMENT),
+                        sphere_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
+                        material_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
+                    ],
+                    label: Some("scene layout"),
+                });
+            let scene_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &scene_bind_group_layout,
                 entries: &[
-                    camera_buffer.layout(wgpu::ShaderStages::FRAGMENT),
-                    sphere_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
+                    camera_buffer.binding(),
+                    sphere_buffer.binding(),
+                    material_buffer.binding(),
                 ],
-                label: Some("scene layout"),
+                label: Some("scene bind group"),
             });
-        let scene_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &scene_bind_group_layout,
-            entries: &[camera_buffer.binding(), sphere_buffer.binding()],
-            label: Some("scene bind group"),
-        });
+
+            (scene_bind_group_layout, scene_bind_group)
+        };
 
         let image_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -220,13 +249,41 @@ impl Raytracer {
 
 pub struct Scene {
     pub spheres: Vec<Sphere>,
+    pub materials: Vec<Material>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Sphere {
-    pub center: glm::Vec3,
-    pub radius: f32,
+    center: glm::Vec3,
+    radius: f32,
+    material_idx: u32,
+    _padding: [u32; 3],
+}
+
+impl Sphere {
+    pub fn new(center: glm::Vec3, radius: f32, material_idx: u32) -> Self {
+        Self {
+            center,
+            radius,
+            material_idx,
+            _padding: [0_u32; 3],
+        }
+    }
+
+    pub fn center(&self) -> glm::Vec3 {
+        self.center
+    }
+
+    pub fn radius(&self) -> f32 {
+        self.radius
+    }
+}
+
+pub enum Material {
+    Lambertian { albedo: glm::Vec3 },
+    Metal { albedo: glm::Vec3, fuzz: f32 },
+    Dielectric { refraction_index: f32 },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -292,6 +349,44 @@ impl GpuCamera {
             lens_radius,
             lower_left_corner,
             _padding5: 0_f32,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuMaterial {
+    albedo: glm::Vec3,
+    x: f32,
+    id: u32,
+    _padding: [u32; 3],
+}
+
+impl GpuMaterial {
+    pub fn lambertian(albedo: glm::Vec3) -> Self {
+        Self {
+            id: 0,
+            albedo,
+            x: 0_f32,
+            _padding: [0_u32; 3],
+        }
+    }
+
+    pub fn metal(albedo: glm::Vec3, fuzz: f32) -> Self {
+        Self {
+            id: 1,
+            albedo,
+            x: fuzz,
+            _padding: [0_u32; 3],
+        }
+    }
+
+    pub fn dielectric(refraction_index: f32) -> Self {
+        Self {
+            id: 2,
+            albedo: glm::vec3(0_f32, 0_f32, 0_f32),
+            x: refraction_index,
+            _padding: [0_u32; 3],
         }
     }
 }

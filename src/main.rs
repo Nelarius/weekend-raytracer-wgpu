@@ -8,7 +8,7 @@
 pub extern crate nalgebra_glm as glm;
 
 use fly_camera::FlyCameraController;
-use raytracer::{Raytracer, RenderParams, Scene, Sphere};
+use raytracer::{Material, Raytracer, RenderParams, Scene, Sphere};
 use std::time::Instant;
 use winit::{
     event::{Event, WindowEvent},
@@ -222,24 +222,28 @@ impl GpuContext {
 }
 
 fn scene() -> Scene {
-    let spheres = vec![
-        Sphere {
-            center: glm::vec3(0.0, -500.0, -1.0),
-            radius: 500.0,
+    let materials = vec![
+        Material::Lambertian {
+            albedo: glm::vec3(0.9_f32, 0.9_f32, 0.9_f32),
         },
-        Sphere {
-            center: glm::vec3(0.0, 1.0, 0.0),
-            radius: 1.0,
+        Material::Lambertian {
+            albedo: glm::vec3(0.3_f32, 0.9_f32, 0.9_f32),
         },
-        Sphere {
-            center: glm::vec3(-5.0, 1.0, 0.0),
-            radius: 1.0,
+        Material::Metal {
+            albedo: glm::vec3(1_f32, 0.85_f32, 0.57_f32),
+            fuzz: 0.4_f32,
         },
-        Sphere {
-            center: glm::vec3(5.0, 1.0, 0.0),
-            radius: 1.0,
+        Material::Dielectric {
+            refraction_index: 1.5_f32,
         },
     ];
 
-    Scene { spheres }
+    let spheres = vec![
+        Sphere::new(glm::vec3(0.0, -500.0, -1.0), 500.0, 0_u32),
+        Sphere::new(glm::vec3(0.0, 1.0, 0.0), 1.0, 3_u32),
+        Sphere::new(glm::vec3(-5.0, 1.0, 0.0), 1.0, 2_u32),
+        Sphere::new(glm::vec3(5.0, 1.0, 0.0), 1.0, 1_u32),
+    ];
+
+    Scene { spheres, materials }
 }

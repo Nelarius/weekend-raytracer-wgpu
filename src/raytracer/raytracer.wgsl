@@ -5,13 +5,12 @@ const FRAC_PI_2 = 1.5707964f;
 const T_MIN = 0.001f;
 const T_MAX = 1000f;
 
-@group(0) @binding(0)
-var<uniform> vertex_uniforms: VertexUniforms;
+@group(0) @binding(0) var<uniform> vertexUniforms: VertexUniforms;
 
 @vertex
 fn vsMain(model: VertexInput) -> VertexOutput {
     return VertexOutput(
-        vertex_uniforms.viewProjectionMat * vertex_uniforms.modelMat * vec4<f32>(model.position, 0.0, 1.0),
+        vertexUniforms.viewProjectionMat * vertexUniforms.modelMat * vec4<f32>(model.position, 0.0, 1.0),
         model.texCoords
     );
 }
@@ -36,6 +35,7 @@ struct VertexOutput {
 
 @group(2) @binding(0) var<uniform> camera: Camera;
 @group(2) @binding(1) var<storage, read> spheres: array<Sphere>;
+@group(2) @binding(2) var<storage, read> materials: array<Material>;
 
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -58,38 +58,150 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
 
 fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
     var ray = primaryRay;
-    var color = vec3<f32>(0f, 0f, 0f);
-    var closestIntersect = Intersection();
 
-    var tClosest = T_MAX;
-    var testIntersect = Intersection();
-    var hit = false;
-    for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
-        let sphere = spheres[idx];
-        if rayIntersectSphere(ray, sphere, T_MIN, T_MAX, &testIntersect) {
-            if testIntersect.t < tClosest {
-                tClosest = testIntersect.t;
-                closestIntersect = testIntersect;
-                hit = true;
+    var color = vec3(0f, 0f, 0f);
+    var throughput = vec3(1f, 1f, 1f);
+
+    for (var bounce = 0u; bounce < 8u; bounce += 1u) {
+        var intersection = Intersection();
+        var materialIdx = 0u;
+
+        // Intersection test
+        var closestT = T_MAX;
+
+        for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
+            let sphere = spheres[idx];
+            var testIntersect = Intersection();
+            if rayIntersectSphere(ray, sphere, T_MIN, closestT, &testIntersect) {
+                closestT = testIntersect.t;
+                intersection = testIntersect;
+                materialIdx = sphere.materialIdx;
             }
         }
+
+        // The ray missed. Output background color.
+        if closestT == T_MAX {
+            let unitDirection = normalize(ray.direction);
+            let t = 0.5f * (unitDirection.y + 1f);
+            color = (1f - t) * vec3(1f, 1f, 1f) + t * vec3(0.5f, 0.7f, 1f);
+            break;
+        }
+
+        // Scatter the ray from the surface
+        let material = materials[materialIdx];
+        var scatter = scatterRay(ray, intersection, material, rngState);
+        ray = scatter.ray;
+        throughput *= scatter.albedo;
     }
 
-    if hit {
-        color = 0.5f * (vec3<f32>(1f, 1f, 1f) + closestIntersect.n);
+    return throughput * color;
+}
+
+fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+    switch material.id {
+        case 0u: {
+            return scatterLambertian(hit, material, rngState);
+        }
+
+        case 1u: {
+            return scatterMetal(rayIn, hit, material, rngState);
+        }
+
+        case 2u: {
+            return scatterDielectric(rayIn, hit, material, rngState);
+        }
+
+        default {
+            // An aggressive pink color to indicate an error
+            return scatterLambertian(hit, Material(vec3(0.9921f, 0.24705f, 0.57254f), 0f, 0u), rngState);
+        }
+    }
+}
+
+fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+    let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
+    let albedo = material.albedo;
+    return Scatter(Ray(hit.p, scatterDirection), albedo);
+}
+
+fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+    let fuzz = material.x;
+    let scatterDirection = reflect(rayIn.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
+    let albedo = material.albedo;
+    return Scatter(Ray(hit.p, scatterDirection), albedo);
+}
+
+fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+    let refractionIndex = material.x;
+
+    var outwardNormal = vec3(0f, 0f, 0f);
+    var niOverNt = 0f;
+    var cosine = 0f;
+    if dot(rayIn.direction, hit.n) > 0f {
+        outwardNormal = -hit.n;
+        niOverNt = refractionIndex;
+        cosine = refractionIndex * dot(normalize(rayIn.direction), hit.n);
+    } else {
+        outwardNormal = hit.n;
+        niOverNt = 1f / refractionIndex;
+        cosine = dot(normalize(-rayIn.direction), hit.n);
+    };
+
+    var refractedDirection = vec3(0f, 0f, 0f);
+    if refract(rayIn.direction, outwardNormal, niOverNt, &refractedDirection) {
+        let reflectionProb = schlick(cosine, refractionIndex);
+        var scatteredRay = refractedDirection;
+        if rngNextFloat(rngState) < reflectionProb {
+            reflect(rayIn.direction, hit.n);
+        }
+
+        return Scatter(Ray(hit.p, scatteredRay), vec3(1f, 1f, 1f));
     }
 
-    return color;
+    let scatteredRay = reflect(rayIn.direction, hit.n);
+    return Scatter(Ray(hit.p, scatteredRay), vec3(1f, 1f, 1f));
+}
+
+fn refract(v: vec3<f32>, n: vec3<f32>, niOverNt: f32, refractDirection: ptr<function, vec3<f32>>) -> bool {
+    // ni * sin(i) = nt * sin(t)
+    // sin(t) = sin(i) * (ni / nt)
+    let uv = normalize(v);
+    let dt = dot(uv, n);
+    let discriminant = 1f - niOverNt * niOverNt * (1f - dt * dt);
+    if discriminant > 0f {
+        *refractDirection = niOverNt * (uv - dt * n) - sqrt(discriminant) * n;
+        return true;
+    }
+
+    return false;
+}
+
+fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
+    var r0 = (1f - refractionIndex) / (1f + refractionIndex);
+    r0 = r0 * r0;
+    return r0 + pow((1f - r0) * (1f - cosine), 5f);
 }
 
 struct Sphere {
     center: vec3<f32>,
     radius: f32,
+    materialIdx: u32,
+}
+
+struct Material {
+    albedo: vec3<f32>,
+    x: f32,
+    id: u32,
 }
 
 struct Ray {
     origin: vec3<f32>,
     direction: vec3<f32>
+}
+
+struct Scatter {
+    ray: Ray,
+    albedo: vec3<f32>,
 }
 
 struct Intersection {
