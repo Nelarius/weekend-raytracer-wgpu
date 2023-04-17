@@ -1,6 +1,6 @@
 use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 
-use crate::raytracer::{Angle, Camera, Scene, Sphere};
+use crate::raytracer::{Angle, Camera};
 
 pub struct FlyCameraController {
     pub position: glm::Vec3,
@@ -18,7 +18,7 @@ pub struct FlyCameraController {
     pub down_pressed: bool,
     pub look_pressed: bool,
     pub previous_mouse_pos: Option<(f32, f32)>,
-    pub mouse_delta: (f32, f32),
+    pub mouse_pos: (f32, f32),
 }
 
 impl Default for FlyCameraController {
@@ -42,7 +42,7 @@ impl Default for FlyCameraController {
             down_pressed: false,
             look_pressed: false,
             previous_mouse_pos: None,
-            mouse_delta: (0.0, 0.0),
+            mouse_pos: (0.0, 0.0),
         }
     }
 }
@@ -58,10 +58,6 @@ impl FlyCameraController {
             aperture: self.aperture,
             focus_distance: self.focus_distance,
         }
-    }
-
-    pub fn begin_frame(&mut self) {
-        self.mouse_delta = (0.0, 0.0);
     }
 
     pub fn handle_event(&mut self, event: &WindowEvent<'_>) {
@@ -100,14 +96,7 @@ impl FlyCameraController {
             }
 
             WindowEvent::CursorMoved { position, .. } => {
-                let position = (position.x as f32, position.y as f32);
-                if let Some(previous_position) = self.previous_mouse_pos {
-                    self.mouse_delta = (
-                        position.0 - previous_position.0,
-                        previous_position.1 - position.1,
-                    );
-                }
-                self.previous_mouse_pos = Some(position);
+                self.mouse_pos = (position.x as f32, position.y as f32);
             }
 
             WindowEvent::MouseInput { button, state, .. } => match button {
@@ -121,13 +110,44 @@ impl FlyCameraController {
         }
     }
 
-    pub fn update(
-        &mut self,
-        scene: &Scene,
-        viewport_size: (u32, u32),
-        translation_scale: f32,
-        rotation_scale: f32,
-    ) {
+    pub fn after_events(&mut self, viewport_size: (u32, u32), translation_scale: f32) {
+        if self.look_pressed {
+            if let Some(prev_mouse_pos) = self.previous_mouse_pos {
+                let orientation = camera_orientation(self);
+                let c1 = orientation.right;
+                let c2 = orientation.forward;
+                let c3 = glm::normalize(&glm::cross(&c1, &c2));
+                let from_local = glm::mat3(c1.x, c2.x, c3.x, c1.y, c2.y, c3.y, c1.z, c2.z, c3.z);
+                let to_local = glm::inverse(&from_local);
+
+                // Perform cartesian to spherical coordinate conversion in camera-local space,
+                // where z points straight into the screen. That way there is no need to worry
+                // about which quadrant of the sphere we are in for the conversion.
+                let current_dir =
+                    to_local * generate_camera_ray_dir(self, self.mouse_pos, viewport_size);
+                let previous_dir =
+                    to_local * generate_camera_ray_dir(self, prev_mouse_pos, viewport_size);
+
+                let x1 = current_dir.x;
+                let y1 = current_dir.y;
+                let z1 = current_dir.z;
+
+                let x2 = previous_dir.x;
+                let y2 = previous_dir.y;
+                let z2 = previous_dir.z;
+
+                let p1 = z1.acos();
+                let p2 = z2.acos();
+
+                let a1 = y1.signum() * (x1 / (x1 * x1 + y1 * y1).sqrt()).acos();
+                let a2 = y2.signum() * (x2 / (x2 * x2 + y2 * y2).sqrt()).acos();
+
+                self.yaw = self.yaw + Angle::radians(a1 - a2);
+                self.pitch = (self.pitch + Angle::radians(p1 - p2))
+                    .clamp(Angle::degrees(-89.0), Angle::degrees(89.0));
+            }
+        }
+
         {
             let v = |b| if b { 1_f32 } else { 0_f32 };
             let translation = glm::vec3(
@@ -142,26 +162,7 @@ impl FlyCameraController {
                 + orientation.forward * translation.z;
         }
 
-        {
-            if self.look_pressed {
-                if let Some(prev_mouse_pos) = self.previous_mouse_pos {
-                    let ray = generate_camera_ray(self, prev_mouse_pos, viewport_size);
-                    let radius = if let Some(p) = ray_intersect_scene(ray, scene) {
-                        glm::distance(&self.position, &p)
-                    } else {
-                        10_f32
-                    };
-
-                    // From arc length: L = theta * r
-                    let t = -rotation_scale / radius;
-                    let yaw_delta = Angle::radians(t * self.mouse_delta.0);
-                    let pitch_delta = Angle::radians(t * self.mouse_delta.1);
-
-                    self.yaw = self.yaw + yaw_delta;
-                    self.pitch = self.pitch + pitch_delta;
-                }
-            }
-        }
+        self.previous_mouse_pos = Some(self.mouse_pos);
     }
 }
 
@@ -171,23 +172,11 @@ struct Orientation {
     up: glm::Vec3,
 }
 
-#[derive(Copy, Clone)]
-struct Ray {
-    origin: glm::Vec3,
-    direction: glm::Vec3,
-}
-
-impl Ray {
-    pub fn point_at_t(&self, t: f32) -> glm::Vec3 {
-        self.origin + self.direction * t
-    }
-}
-
-fn generate_camera_ray(
+fn generate_camera_ray_dir(
     camera: &FlyCameraController,
     mouse_pos: (f32, f32),
     viewport_size: (u32, u32),
-) -> Ray {
+) -> glm::Vec3 {
     let aspect_ratio = viewport_size.0 as f32 / viewport_size.1 as f32;
     let half_height =
         camera.focus_distance * (0.5 * Angle::degrees(camera.vfov_degrees).as_radians()).tan();
@@ -196,29 +185,14 @@ fn generate_camera_ray(
     let x = mouse_pos.0 / (viewport_size.0 as f32);
     let y = mouse_pos.1 / (viewport_size.1 as f32);
 
-    let origin = camera.position;
     let orientation = camera_orientation(camera);
-
-    // Decomposition:
-
-    // let top_left = camera.position
-    //     + camera.focus_distance * orientation.forward
-    //     - half_width * orientation.right;
-    //     + half_height * orientation.up
-
-    // let point_on_plane = top_left
-    //     + 2_f32 * x * half_width * orientation.right
-    //     - 2_f32 * y * half_height * orientation.up;
 
     let point_on_plane = camera.position
         + camera.focus_distance * orientation.forward
         + (2_f32 * x - 1_f32) * half_width * orientation.right
         + (1_f32 - 2_f32 * y) * half_height * orientation.up;
 
-    Ray {
-        origin,
-        direction: glm::normalize(&(point_on_plane - camera.position)),
-    }
+    glm::normalize(&(point_on_plane - camera.position))
 }
 
 fn camera_orientation(camera: &FlyCameraController) -> Orientation {
@@ -227,43 +201,8 @@ fn camera_orientation(camera: &FlyCameraController) -> Orientation {
         camera.pitch.as_radians().sin(),
         camera.yaw.as_radians().sin() * camera.pitch.as_radians().cos(),
     ));
-    let up = glm::vec3(0.0, 1.0, 0.0);
-    let right = glm::cross(&forward, &up);
+    let world_up = glm::vec3(0.0, 1.0, 0.0);
+    let right = glm::cross(&forward, &world_up);
+    let up = glm::cross(&right, &forward);
     Orientation { forward, right, up }
-}
-
-fn ray_intersect_scene(ray: Ray, scene: &Scene) -> Option<glm::Vec3> {
-    let mut closest_t = f32::INFINITY;
-    let mut closest_intersection = None;
-
-    for sphere in &scene.spheres {
-        if let Some(intersection) = ray_intersect_sphere(ray, sphere, 0.001, closest_t) {
-            closest_t = glm::distance(&ray.origin, &intersection);
-            closest_intersection = Some(intersection);
-        }
-    }
-
-    closest_intersection
-}
-
-fn ray_intersect_sphere(ray: Ray, sphere: &Sphere, tmin: f32, tmax: f32) -> Option<glm::Vec3> {
-    let oc = ray.origin - sphere.center();
-    let a = glm::dot(&ray.direction, &ray.direction);
-    let b = glm::dot(&oc, &ray.direction);
-    let c = glm::dot(&oc, &oc) - sphere.radius() * sphere.radius();
-    let discriminant = b * b - a * c;
-
-    if discriminant > 0_f32 {
-        let mut t = (-b - (b * b - a * c).sqrt()) / a;
-        if t < tmax && t > tmin {
-            return Some(ray.point_at_t(t));
-        }
-
-        t = (-b + (b * b - a * c).sqrt()) / a;
-        if t < tmax && t > tmin {
-            return Some(ray.point_at_t(t));
-        }
-    }
-
-    None
 }

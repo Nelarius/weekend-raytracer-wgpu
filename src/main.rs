@@ -59,10 +59,6 @@ fn main() {
     let mut last_time = Instant::now();
 
     event_loop.run(move |event, _, _control_flow| match event {
-        Event::NewEvents(_) => {
-            fly_camera_controller.begin_frame();
-        }
-
         Event::WindowEvent { event, .. } => {
             fly_camera_controller.handle_event(&event);
             match event {
@@ -101,7 +97,7 @@ fn main() {
                 let dt = last_time.elapsed().as_secs_f32();
                 last_time = Instant::now();
 
-                fly_camera_controller.update(&scene, render_params.viewport_size, 2.0 * dt, dt);
+                fly_camera_controller.after_events(render_params.viewport_size, 2.0 * dt);
             }
 
             render_params.camera = fly_camera_controller.renderer_camera();

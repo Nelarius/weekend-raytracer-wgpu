@@ -270,14 +270,6 @@ impl Sphere {
             _padding: [0_u32; 3],
         }
     }
-
-    pub fn center(&self) -> glm::Vec3 {
-        self.center
-    }
-
-    pub fn radius(&self) -> f32 {
-        self.radius
-    }
 }
 
 pub enum Material {

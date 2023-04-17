@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Angle {
     radians: f32,
 }
@@ -24,6 +24,18 @@ impl Angle {
     #[allow(dead_code)]
     pub fn as_radians(&self) -> f32 {
         self.radians
+    }
+
+    pub fn clamp(mut self, min: Self, max: Self) -> Self {
+        // NOTE: f32 has it's own implementation of clamp, which does not rely on Ord being implemented.
+        // f32 does not have total order, and thus we can't rely on #[derive(Ord)] here.
+        if self.radians < min.radians {
+            self.radians = min.radians;
+        }
+        if self.radians > max.radians {
+            self.radians = max.radians;
+        }
+        self
     }
 }
 
@@ -59,5 +71,23 @@ mod tests {
         let rhs = Angle::degrees(90_f32);
         let result = lhs + rhs;
         assert_eq!(result.as_degrees(), 180_f32);
+    }
+
+    #[test]
+    fn test_angle_clamp_max() {
+        let angle = Angle::degrees(90_f32);
+        let min = Angle::degrees(0_f32);
+        let max = Angle::degrees(45_f32);
+        let result = angle.clamp(min, max);
+        assert_eq!(result.as_degrees(), 45_f32);
+    }
+
+    #[test]
+    fn test_angle_clamp_min() {
+        let angle = Angle::degrees(-90_f32);
+        let min = Angle::degrees(0_f32);
+        let max = Angle::degrees(45_f32);
+        let result = angle.clamp(min, max);
+        assert_eq!(result.as_degrees(), 0_f32);
     }
 }
