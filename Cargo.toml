@@ -9,5 +9,5 @@ edition = "2021"
 bytemuck = { version = "1.13.1", features = ["derive"] }
 nalgebra-glm = { version = "0.18.0", features = ["convert-bytemuck"] }
 pollster = "0.3.0"
-wgpu = "0.15.0"
+wgpu = "0.16.0"
 winit = "0.28.3"
