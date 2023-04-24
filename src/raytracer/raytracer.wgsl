@@ -1,9 +1,9 @@
-const PI = 3.1415927f;
-const FRAC_1_PI = 0.31830987f;
-const FRAC_PI_2 = 1.5707964f;
+const pi = 3.1415927f;
+const frac1Pi = 0.31830987f;
+const fracPi2 = 1.5707964f;
 
-const T_MIN = 0.001f;
-const T_MAX = 1000f;
+const minT = 0.001f;
+const maxT = 1000f;
 
 @group(0) @binding(0) var<uniform> vertexUniforms: VertexUniforms;
 
@@ -67,12 +67,12 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
         var materialIdx = 0u;
 
         // Intersection test
-        var closestT = T_MAX;
+        var closestT = maxT;
 
         for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
             let sphere = spheres[idx];
             var testIntersect = Intersection();
-            if rayIntersectSphere(ray, sphere, T_MIN, closestT, &testIntersect) {
+            if rayIntersectSphere(ray, sphere, minT, closestT, &testIntersect) {
                 closestT = testIntersect.t;
                 intersection = testIntersect;
                 materialIdx = sphere.materialIdx;
@@ -80,7 +80,7 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
         }
 
         // The ray missed. Output background color.
-        if closestT == T_MAX {
+        if closestT == maxT {
             let unitDirection = normalize(ray.direction);
             let t = 0.5f * (unitDirection.y + 1f);
             color = (1f - t) * vec3(1f, 1f, 1f) + t * vec3(0.5f, 0.7f, 1f);
@@ -111,7 +111,7 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
             return scatterDielectric(rayIn, hit, material, rngState);
         }
 
-        default {
+        default: {
             // An aggressive pink color to indicate an error
             return scatterLambertian(hit, Material(vec3(0.9921f, 0.24705f, 0.57254f), 0f, 0u), rngState);
         }
@@ -271,7 +271,7 @@ fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
 
     // r^2 is distributed as U(0, 1).
     let r = sqrt(rngNextFloat(state));
-    let alpha = 2f * PI * rngNextFloat(state);
+    let alpha = 2f * pi * rngNextFloat(state);
 
     let x = r * cos(alpha);
     let y = r * sin(alpha);
@@ -282,14 +282,19 @@ fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
 fn rngNextVec3InUnitSphere(state: ptr<function, u32>) -> vec3<f32> {
     // probability density is uniformly distributed over r^3
     let r = pow(rngNextFloat(state), 0.33333f);
-    let theta = PI * rngNextFloat(state);
-    let phi = 2f * PI * rngNextFloat(state);
+    let theta = pi * rngNextFloat(state);
+    let phi = 2f * pi * rngNextFloat(state);
 
     let x = r * sin(theta) * cos(phi);
     let y = r * sin(theta) * sin(phi);
     let z = r * cos(theta);
 
     return vec3(x, y, z);
+}
+
+fn rngNextFloat(state: ptr<function, u32>) -> f32 {
+    rngNextInt(state);
+    return f32(*state) / f32(0xffffffffu);
 }
 
 fn rngNextInt(state: ptr<function, u32>) {
@@ -299,9 +304,4 @@ fn rngNextInt(state: ptr<function, u32>) {
     let oldState = *state + 747796405u + 2891336453u;
     let word = ((oldState >> ((oldState >> 28u) + 4u)) ^ oldState) * 277803737u;
     *state = (word >> 22u) ^ word;
-}
-
-fn rngNextFloat(state: ptr<function, u32>) -> f32 {
-    rngNextInt(state);
-    return f32(*state) / f32(0xffffffffu);
 }
