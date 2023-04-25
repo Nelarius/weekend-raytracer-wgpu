@@ -255,19 +255,22 @@ pub struct Scene {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Sphere {
-    center: glm::Vec3,
-    radius: f32,
-    material_idx: u32,
-    _padding: [u32; 3],
+    // NOTE: naga memory alignment issue, see discussion at
+    // https://github.com/gfx-rs/naga/issues/2000
+    // It's safer to just use Vec4 instead of Vec3.
+    center: glm::Vec4,  // 0 byte offset
+    radius: f32,        // 16 byte offset
+    material_idx: u32,  // 20 byte offset
+    _padding: [u32; 2], // 24 byte offset, 8 bytes size
 }
 
 impl Sphere {
     pub fn new(center: glm::Vec3, radius: f32, material_idx: u32) -> Self {
         Self {
-            center,
+            center: glm::vec3_to_vec4(&center),
             radius,
             material_idx,
-            _padding: [0_u32; 3],
+            _padding: [0_u32; 2],
         }
     }
 }
@@ -348,37 +351,37 @@ impl GpuCamera {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuMaterial {
-    albedo: glm::Vec3,
-    x: f32,
-    id: u32,
-    _padding: [u32; 3],
+    albedo: glm::Vec4,   // 0 bytes offset
+    x: f32,              // 16 bytes offset
+    id: u32,             // 20 bytes offset
+    _padding2: [u32; 2], // 24 bytes offset, 8 bytes size
 }
 
 impl GpuMaterial {
     pub fn lambertian(albedo: glm::Vec3) -> Self {
         Self {
-            id: 0,
-            albedo,
+            albedo: glm::vec3_to_vec4(&albedo),
             x: 0_f32,
-            _padding: [0_u32; 3],
+            id: 0,
+            _padding2: [0_u32; 2],
         }
     }
 
     pub fn metal(albedo: glm::Vec3, fuzz: f32) -> Self {
         Self {
-            id: 1,
-            albedo,
+            albedo: glm::vec3_to_vec4(&albedo),
             x: fuzz,
-            _padding: [0_u32; 3],
+            id: 1,
+            _padding2: [0_u32; 2],
         }
     }
 
     pub fn dielectric(refraction_index: f32) -> Self {
         Self {
-            id: 2,
-            albedo: glm::vec3(0_f32, 0_f32, 0_f32),
+            albedo: glm::vec4(0_f32, 0_f32, 0_f32, 0_f32),
             x: refraction_index,
-            _padding: [0_u32; 3],
+            id: 2,
+            _padding2: [0_u32; 2],
         }
     }
 }

@@ -113,21 +113,21 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
 
         default: {
             // An aggressive pink color to indicate an error
-            return scatterLambertian(hit, Material(vec3(0.9921f, 0.24705f, 0.57254f), 0f, 0u), rngState);
+            return scatterLambertian(hit, Material(vec4(0.9921f, 0.24705f, 0.57254f, 1f), 0f, 0u), rngState);
         }
     }
 }
 
 fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
-    let albedo = material.albedo;
+    let albedo = material.albedo_and_pad.rgb;
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let fuzz = material.x;
     let scatterDirection = reflect(rayIn.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
-    let albedo = material.albedo;
+    let albedo = material.albedo_and_pad.rgb;
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
@@ -183,13 +183,13 @@ fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
 }
 
 struct Sphere {
-    center: vec3<f32>,
+    center_and_pad: vec4<f32>,
     radius: f32,
     materialIdx: u32,
 }
 
 struct Material {
-    albedo: vec3<f32>,
+    albedo_and_pad: vec4<f32>,
     x: f32,
     id: u32,
 }
@@ -211,7 +211,7 @@ struct Intersection {
 }
 
 fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<function, Intersection>) -> bool {
-    let oc = ray.origin - sphere.center;
+    let oc = ray.origin - sphere.center_and_pad.xyz;
     let a = dot(ray.direction, ray.direction);
     let b = dot(oc, ray.direction);
     let c = dot(oc, oc) - sphere.radius * sphere.radius;
@@ -236,7 +236,7 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
 
 fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
-    let n = (1f / sphere.radius) * (p - sphere.center);
+    let n = (1f / sphere.radius) * (p - sphere.center_and_pad.xyz);
 
     return Intersection(p, n, t);
 }
