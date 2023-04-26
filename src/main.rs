@@ -9,7 +9,7 @@ pub extern crate nalgebra_glm as glm;
 
 use fly_camera::FlyCameraController;
 use raytracer::{Material, Raytracer, RenderParams, Scene, Sphere};
-use std::time::Instant;
+use std::{collections::VecDeque, time::Instant};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -88,6 +88,7 @@ fn main() {
     let mut last_cursor = None;
 
     let mut last_time = Instant::now();
+    let mut fps_counter = FpsCounter::new();
 
     event_loop.run(move |event, _, _control_flow| {
         imgui_platform.handle_event(imgui.io_mut(), &window, &event);
@@ -133,6 +134,7 @@ fn main() {
                     let dt = last_time.elapsed().as_secs_f32();
                     let now = Instant::now();
 
+                    fps_counter.update(dt);
                     fly_camera_controller.after_events(render_params.viewport_size, 2.0 * dt);
 
                     imgui.io_mut().update_delta_time(now - last_time);
@@ -150,8 +152,7 @@ fn main() {
                         window
                             .size([300.0, 300.0], imgui::Condition::FirstUseEver)
                             .build(|| {
-                                ui.text("Hello, imgui!");
-                                ui.separator();
+                                ui.text(format!("FPS: {:.1}", fps_counter.average_fps()));
                             });
                     }
 
@@ -286,6 +287,32 @@ impl GpuContext {
             surface,
             surface_config,
         }
+    }
+}
+
+struct FpsCounter {
+    frame_times: VecDeque<f32>,
+}
+
+impl FpsCounter {
+    const MAX_FRAME_TIMES: usize = 8;
+
+    pub fn new() -> Self {
+        Self {
+            frame_times: VecDeque::with_capacity(Self::MAX_FRAME_TIMES),
+        }
+    }
+
+    pub fn update(&mut self, dt: f32) {
+        self.frame_times.push_back(dt);
+        if self.frame_times.len() > Self::MAX_FRAME_TIMES {
+            self.frame_times.pop_front();
+        }
+    }
+
+    pub fn average_fps(&self) -> f32 {
+        let sum: f32 = self.frame_times.iter().sum();
+        self.frame_times.len() as f32 / sum
     }
 }
 
