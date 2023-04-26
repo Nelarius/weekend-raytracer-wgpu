@@ -7,7 +7,10 @@ edition = "2021"
 
 [dependencies]
 bytemuck = { version = "1.13.1", features = ["derive"] }
+imgui = "0.11.0"
+imgui-wgpu = { git = "https://github.com/Nelarius/imgui-wgpu-rs/", rev = "1cd675a" }
+imgui-winit-support = "0.11.0"
 nalgebra-glm = { version = "0.18.0", features = ["convert-bytemuck"] }
 pollster = "0.3.0"
 wgpu = "0.16.0"
-winit = "0.28.3"
+winit = "0.27.0"

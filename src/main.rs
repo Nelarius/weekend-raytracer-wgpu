@@ -56,100 +56,172 @@ fn main() {
         max_viewport_resolution,
     );
 
+    let mut imgui = imgui::Context::create();
+    let mut imgui_platform = imgui_winit_support::WinitPlatform::init(&mut imgui);
+    imgui_platform.attach_window(
+        imgui.io_mut(),
+        &window,
+        imgui_winit_support::HiDpiMode::Rounded,
+    );
+    imgui.set_ini_filename(Some(std::path::PathBuf::from("imgui.ini")));
+    let hidpi_factor = window.scale_factor() as f32;
+    let font_size = 13.0 * hidpi_factor;
+    imgui.io_mut().font_global_scale = 1.0 / hidpi_factor;
+    imgui
+        .fonts()
+        .add_font(&[imgui::FontSource::DefaultFontData {
+            config: Some(imgui::FontConfig {
+                size_pixels: font_size,
+                ..Default::default()
+            }),
+        }]);
+    let imgui_renderer_config = imgui_wgpu::RendererConfig {
+        texture_format: context.surface_config.format,
+        ..Default::default()
+    };
+    let mut imgui_renderer = imgui_wgpu::Renderer::new(
+        &mut imgui,
+        &context.device,
+        &context.queue,
+        imgui_renderer_config,
+    );
+    let mut last_cursor = None;
+
     let mut last_time = Instant::now();
 
-    event_loop.run(move |event, _, _control_flow| match event {
-        Event::WindowEvent { event, .. } => {
-            fly_camera_controller.handle_event(&event);
-            match event {
-                WindowEvent::CloseRequested => {
-                    *_control_flow = ControlFlow::Exit;
+    event_loop.run(move |event, _, _control_flow| {
+        imgui_platform.handle_event(imgui.io_mut(), &window, &event);
+
+        match event {
+            Event::WindowEvent { event, .. } => {
+                fly_camera_controller.handle_event(&event);
+                match event {
+                    WindowEvent::CloseRequested => {
+                        *_control_flow = ControlFlow::Exit;
+                    }
+
+                    WindowEvent::Resized(physical_size) => {
+                        if physical_size.width > 0 && physical_size.height > 0 {
+                            render_params.viewport_size =
+                                (physical_size.width, physical_size.height);
+                            context.surface_config.width = physical_size.width;
+                            context.surface_config.height = physical_size.height;
+                            context
+                                .surface
+                                .configure(&context.device, &context.surface_config);
+                        }
+                    }
+
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        if new_inner_size.width > 0 && new_inner_size.height > 0 {
+                            render_params.viewport_size =
+                                (new_inner_size.width, new_inner_size.height);
+                            context.surface_config.width = new_inner_size.width;
+                            context.surface_config.height = new_inner_size.height;
+                            context
+                                .surface
+                                .configure(&context.device, &context.surface_config);
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+
+            Event::MainEventsCleared => {
+                {
+                    let dt = last_time.elapsed().as_secs_f32();
+                    let now = Instant::now();
+
+                    fly_camera_controller.after_events(render_params.viewport_size, 2.0 * dt);
+
+                    imgui.io_mut().update_delta_time(now - last_time);
+
+                    last_time = now;
                 }
 
-                WindowEvent::Resized(physical_size) => {
-                    if physical_size.width > 0 && physical_size.height > 0 {
-                        render_params.viewport_size = (physical_size.width, physical_size.height);
-                        context.surface_config.width = physical_size.width;
-                        context.surface_config.height = physical_size.height;
-                        context
-                            .surface
-                            .configure(&context.device, &context.surface_config);
+                {
+                    imgui_platform
+                        .prepare_frame(imgui.io_mut(), &window)
+                        .expect("WinitPlatform::prepare_frame failed");
+                    let ui = imgui.frame();
+                    {
+                        let window = ui.window("Hello, imgui");
+                        window
+                            .size([300.0, 300.0], imgui::Condition::FirstUseEver)
+                            .build(|| {
+                                ui.text("Hello, imgui!");
+                                ui.separator();
+                            });
+                    }
+
+                    if last_cursor != Some(ui.mouse_cursor()) {
+                        last_cursor = Some(ui.mouse_cursor());
+                        imgui_platform.prepare_render(&ui, &window);
                     }
                 }
 
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                        render_params.viewport_size = (new_inner_size.width, new_inner_size.height);
-                        context.surface_config.width = new_inner_size.width;
-                        context.surface_config.height = new_inner_size.height;
-                        context
-                            .surface
-                            .configure(&context.device, &context.surface_config);
+                render_params.camera = fly_camera_controller.renderer_camera();
+                raytracer.set_render_params(&context.queue, render_params);
+
+                window.request_redraw();
+            }
+
+            Event::RedrawRequested(window_id) if window_id == window.id() => {
+                let frame = match context.surface.get_current_texture() {
+                    Ok(frame) => frame,
+                    Err(e) => {
+                        eprintln!("Surface error: {:?}", e);
+                        return;
+                    }
+                };
+
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                let mut encoder = context
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.012,
+                                    g: 0.012,
+                                    b: 0.012,
+                                    a: 1.0,
+                                }),
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        label: None,
+                    });
+
+                    raytracer.render_frame(&mut render_pass);
+
+                    match imgui_renderer.render(
+                        imgui.render(),
+                        &context.queue,
+                        &context.device,
+                        &mut render_pass,
+                    ) {
+                        Err(e) => eprintln!("Imgui render error: {:?}", e),
+                        _ => {}
                     }
                 }
 
-                _ => {}
-            }
-        }
-
-        Event::MainEventsCleared => {
-            {
-                let dt = last_time.elapsed().as_secs_f32();
-                last_time = Instant::now();
-
-                fly_camera_controller.after_events(render_params.viewport_size, 2.0 * dt);
+                context.queue.submit(Some(encoder.finish()));
+                frame.present();
             }
 
-            render_params.camera = fly_camera_controller.renderer_camera();
-            raytracer.set_render_params(&context.queue, render_params);
-
-            window.request_redraw();
+            _ => {}
         }
-
-        Event::RedrawRequested(window_id) if window_id == window.id() => {
-            let frame = match context.surface.get_current_texture() {
-                Ok(frame) => frame,
-                Err(e) => {
-                    eprintln!("Surface error: {:?}", e);
-                    return;
-                }
-            };
-
-            let view = frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
-            let mut encoder = context
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.012,
-                                g: 0.012,
-                                b: 0.012,
-                                a: 1.0,
-                            }),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    label: None,
-                });
-
-                raytracer.render_frame(&mut render_pass);
-            }
-
-            context.queue.submit(Some(encoder.finish()));
-            frame.present();
-        }
-
-        _ => {}
     });
 }
 
