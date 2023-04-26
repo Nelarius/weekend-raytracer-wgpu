@@ -29,7 +29,7 @@ impl Default for FlyCameraController {
 
         Self {
             position: look_from,
-            yaw: Angle::degrees(15_f32),
+            yaw: Angle::degrees(25_f32),
             pitch: Angle::degrees(-10_f32),
             vfov_degrees: 30.0,
             aperture: 1.0,
@@ -166,12 +166,6 @@ impl FlyCameraController {
     }
 }
 
-struct Orientation {
-    forward: glm::Vec3,
-    right: glm::Vec3,
-    up: glm::Vec3,
-}
-
 fn generate_camera_ray_dir(
     camera: &FlyCameraController,
     mouse_pos: (f32, f32),
@@ -193,6 +187,12 @@ fn generate_camera_ray_dir(
         + (1_f32 - 2_f32 * y) * half_height * orientation.up;
 
     glm::normalize(&(point_on_plane - camera.position))
+}
+
+struct Orientation {
+    forward: glm::Vec3,
+    right: glm::Vec3,
+    up: glm::Vec3,
 }
 
 fn camera_orientation(camera: &FlyCameraController) -> Orientation {
