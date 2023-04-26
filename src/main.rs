@@ -153,6 +153,27 @@ fn main() {
                             .size([300.0, 300.0], imgui::Condition::FirstUseEver)
                             .build(|| {
                                 ui.text(format!("FPS: {:.1}", fps_counter.average_fps()));
+                                ui.separator();
+
+                                ui.text("Camera parameters:");
+                                ui.slider(
+                                    "aperture radius",
+                                    0.01_f32,
+                                    1_f32,
+                                    &mut fly_camera_controller.aperture,
+                                );
+                                ui.slider(
+                                    "vertical FOV",
+                                    10_f32,
+                                    100_f32,
+                                    &mut fly_camera_controller.vfov_degrees,
+                                );
+                                ui.slider(
+                                    "focal distance",
+                                    4_f32,
+                                    40_f32,
+                                    &mut fly_camera_controller.focus_distance,
+                                );
                             });
                     }
 
