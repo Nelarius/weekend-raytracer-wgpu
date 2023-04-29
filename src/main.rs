@@ -8,7 +8,7 @@
 pub extern crate nalgebra_glm as glm;
 
 use fly_camera::FlyCameraController;
-use raytracer::{Material, Raytracer, RenderParams, Scene, Sphere};
+use raytracer::{Material, Raytracer, RenderParams, SamplingParams, Scene, Sphere};
 use std::{collections::VecDeque, time::Instant};
 use winit::{
     event::{Event, WindowEvent},
@@ -46,6 +46,11 @@ fn main() {
 
     let mut render_params = RenderParams {
         camera: fly_camera_controller.renderer_camera(),
+        sampling: SamplingParams {
+            max_samples_per_pixel: 128_u32,
+            num_samples_per_pixel: 4_u32,
+            num_bounces: 8_u32,
+        },
         viewport_size,
     };
     let mut raytracer = Raytracer::new(
@@ -148,7 +153,7 @@ fn main() {
                         .expect("WinitPlatform::prepare_frame failed");
                     let ui = imgui.frame();
                     {
-                        let window = ui.window("Hello, imgui");
+                        let window = ui.window("Parameters");
                         window
                             .size([300.0, 300.0], imgui::Condition::FirstUseEver)
                             .build(|| {
@@ -225,7 +230,7 @@ fn main() {
                         label: None,
                     });
 
-                    raytracer.render_frame(&mut render_pass);
+                    raytracer.render_frame(&context.queue, &mut render_pass);
 
                     match imgui_renderer.render(
                         imgui.render(),

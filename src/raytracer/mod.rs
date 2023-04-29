@@ -11,9 +11,12 @@ pub struct Raytracer {
     image_dimensions_buffer: UniformBuffer,
     image_bind_group: wgpu::BindGroup,
     camera_buffer: UniformBuffer,
+    sampling_parameter_buffer: UniformBuffer,
+    parameter_bind_group: wgpu::BindGroup,
     scene_bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
     latest_render_params: RenderParams,
+    render_progress: RenderProgress,
 }
 
 impl Raytracer {
@@ -55,15 +58,45 @@ impl Raytracer {
             )
         };
 
+        let image_buffer = {
+            // TODO: try using array<array<f32, 3>>, memory layout should be tightly packed
+            let buffer = vec![[0_f32; 4]; max_viewport_resolution as usize];
+            StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::cast_slice(buffer.as_slice()),
+                1_u32,
+                Some("image buffer"),
+            )
+        };
+
         let rng_state_buffer = {
             let seed_buffer: Vec<u32> = (0..max_viewport_resolution).collect();
             StorageBuffer::new_from_bytes(
                 device,
                 bytemuck::cast_slice(seed_buffer.as_slice()),
-                1_u32,
+                2_u32,
                 Some("rng seed buffer"),
             )
         };
+
+        let image_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    image_dimensions_buffer.layout(wgpu::ShaderStages::FRAGMENT),
+                    image_buffer.layout(wgpu::ShaderStages::FRAGMENT, false),
+                    rng_state_buffer.layout(wgpu::ShaderStages::FRAGMENT, false),
+                ],
+                label: Some("image layout"),
+            });
+        let image_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &image_bind_group_layout,
+            entries: &[
+                image_dimensions_buffer.binding(),
+                image_buffer.binding(),
+                rng_state_buffer.binding(),
+            ],
+            label: Some("image bind group"),
+        });
 
         let camera_buffer = {
             let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
@@ -76,11 +109,43 @@ impl Raytracer {
             )
         };
 
+        let sampling_parameter_buffer = {
+            // TODO: these should be inlcuded in the render params
+            let sampling_params = GpuSamplingParams {
+                num_samples_per_pixel: 2_u32,
+                num_bounces: 6_u32,
+                accumulated_samples_per_pixel: 0_u32,
+                clear_accumulated_samples: 0_u32,
+            };
+
+            UniformBuffer::new_from_bytes(
+                device,
+                bytemuck::bytes_of(&sampling_params),
+                1_u32,
+                Some("sampling parameter buffer"),
+            )
+        };
+
+        let parameter_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    camera_buffer.layout(wgpu::ShaderStages::FRAGMENT),
+                    sampling_parameter_buffer.layout(wgpu::ShaderStages::FRAGMENT),
+                ],
+                label: Some("parameter layout"),
+            });
+
+        let parameter_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &parameter_bind_group_layout,
+            entries: &[camera_buffer.binding(), sampling_parameter_buffer.binding()],
+            label: Some("parameter bind group"),
+        });
+
         let (scene_bind_group_layout, scene_bind_group) = {
             let sphere_buffer = StorageBuffer::new_from_bytes(
                 device,
                 bytemuck::cast_slice(scene.spheres.as_slice()),
-                1_u32,
+                0_u32,
                 Some("scene buffer"),
             );
 
@@ -98,14 +163,13 @@ impl Raytracer {
             let material_buffer = StorageBuffer::new_from_bytes(
                 device,
                 bytemuck::cast_slice(materials.as_slice()),
-                2_u32,
+                1_u32,
                 Some("material buffer"),
             );
 
             let scene_bind_group_layout =
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
-                        camera_buffer.layout(wgpu::ShaderStages::FRAGMENT),
                         sphere_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                         material_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                     ],
@@ -113,33 +177,12 @@ impl Raytracer {
                 });
             let scene_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &scene_bind_group_layout,
-                entries: &[
-                    camera_buffer.binding(),
-                    sphere_buffer.binding(),
-                    material_buffer.binding(),
-                ],
+                entries: &[sphere_buffer.binding(), material_buffer.binding()],
                 label: Some("scene bind group"),
             });
 
             (scene_bind_group_layout, scene_bind_group)
         };
-
-        let image_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    image_dimensions_buffer.layout(wgpu::ShaderStages::FRAGMENT),
-                    rng_state_buffer.layout(wgpu::ShaderStages::FRAGMENT, false),
-                ],
-                label: Some("image layout"),
-            });
-        let image_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &image_bind_group_layout,
-            entries: &[
-                image_dimensions_buffer.binding(),
-                rng_state_buffer.binding(),
-            ],
-            label: Some("image bind group"),
-        });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             source: wgpu::ShaderSource::Wgsl(include_str!("raytracer.wgsl").into()),
@@ -150,6 +193,7 @@ impl Raytracer {
             bind_group_layouts: &[
                 &vertex_uniform_bind_group_layout,
                 &image_bind_group_layout,
+                &parameter_bind_group_layout,
                 &scene_bind_group_layout,
             ],
             push_constant_ranges: &[],
@@ -202,23 +246,45 @@ impl Raytracer {
             label: Some("VertexInput buffer"),
         });
 
+        let render_progress = RenderProgress::new();
+
         Self {
             vertex_uniform_bind_group,
             image_dimensions_buffer,
             image_bind_group,
             camera_buffer,
+            sampling_parameter_buffer,
+            parameter_bind_group,
             scene_bind_group,
             vertex_buffer,
             pipeline,
             latest_render_params: *render_params,
+            render_progress,
         }
     }
 
-    pub fn render_frame<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+    pub fn render_frame<'a>(
+        &'a mut self,
+        queue: &wgpu::Queue,
+        render_pass: &mut wgpu::RenderPass<'a>,
+    ) {
+        {
+            let gpu_sampling_params = self
+                .render_progress
+                .next_frame(&self.latest_render_params.sampling);
+
+            queue.write_buffer(
+                &self.sampling_parameter_buffer.handle(),
+                0,
+                bytemuck::cast_slice(&[gpu_sampling_params]),
+            );
+        }
+
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.vertex_uniform_bind_group, &[]);
         render_pass.set_bind_group(1, &self.image_bind_group, &[]);
-        render_pass.set_bind_group(2, &self.scene_bind_group, &[]);
+        render_pass.set_bind_group(2, &self.parameter_bind_group, &[]);
+        render_pass.set_bind_group(3, &self.scene_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
         let num_vertices = VERTICES.len() as u32;
@@ -243,6 +309,9 @@ impl Raytracer {
         {
             let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
             queue.write_buffer(&self.camera_buffer.handle(), 0, bytemuck::bytes_of(&camera));
+        }
+        {
+            self.render_progress.reset();
         }
     }
 }
@@ -284,6 +353,7 @@ pub enum Material {
 #[derive(Clone, Copy, PartialEq)]
 pub struct RenderParams {
     pub camera: Camera,
+    pub sampling: SamplingParams,
     pub viewport_size: (u32, u32),
 }
 
@@ -295,6 +365,69 @@ pub struct Camera {
     pub vfov: Angle,
     pub aperture: f32,
     pub focus_distance: f32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct SamplingParams {
+    pub max_samples_per_pixel: u32,
+    pub num_samples_per_pixel: u32,
+    pub num_bounces: u32,
+}
+
+struct RenderProgress {
+    accumulated_samples_per_pixel: u32,
+}
+
+impl RenderProgress {
+    pub fn new() -> Self {
+        Self {
+            accumulated_samples_per_pixel: 0_u32,
+        }
+    }
+
+    pub fn next_frame(&mut self, sampling_params: &SamplingParams) -> GpuSamplingParams {
+        let current_accumulated_samples = self.accumulated_samples_per_pixel;
+        let next_accumulated_samples =
+            sampling_params.num_samples_per_pixel + current_accumulated_samples;
+
+        // Initial state: no samples have been accumulated yet. This is the first frame
+        // after a reset. The image buffer's previous samples should be cleared by
+        // setting clear_accumulated_samples to 1_u32.
+        if current_accumulated_samples == 0_u32 {
+            self.accumulated_samples_per_pixel = next_accumulated_samples;
+            GpuSamplingParams {
+                num_samples_per_pixel: sampling_params.num_samples_per_pixel,
+                num_bounces: sampling_params.num_bounces,
+                accumulated_samples_per_pixel: next_accumulated_samples,
+                clear_accumulated_samples: 1_u32,
+            }
+        }
+        // Progressive render: accumulating samples in the image buffer over multiple
+        // frames.
+        else if next_accumulated_samples <= sampling_params.max_samples_per_pixel {
+            self.accumulated_samples_per_pixel = next_accumulated_samples;
+            GpuSamplingParams {
+                num_samples_per_pixel: sampling_params.num_samples_per_pixel,
+                num_bounces: sampling_params.num_bounces,
+                accumulated_samples_per_pixel: next_accumulated_samples,
+                clear_accumulated_samples: 0_u32,
+            }
+        }
+        // Completed render: we have accumulated max_samples_per_pixel samples. Stop rendering
+        // by setting num_samples_per_pixel to zero.
+        else {
+            GpuSamplingParams {
+                num_samples_per_pixel: 0_u32,
+                num_bounces: sampling_params.num_bounces,
+                accumulated_samples_per_pixel: current_accumulated_samples,
+                clear_accumulated_samples: 0_u32,
+            }
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.accumulated_samples_per_pixel = 0_u32;
+    }
 }
 
 #[repr(C)]
@@ -384,6 +517,15 @@ impl GpuMaterial {
             _padding2: [0_u32; 2],
         }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuSamplingParams {
+    num_samples_per_pixel: u32,
+    num_bounces: u32,
+    accumulated_samples_per_pixel: u32,
+    clear_accumulated_samples: u32,
 }
 
 #[repr(C)]

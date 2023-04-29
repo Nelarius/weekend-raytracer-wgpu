@@ -31,11 +31,14 @@ struct VertexOutput {
 }
 
 @group(1) @binding(0) var<uniform> imageDimensions: vec2<u32>;
-@group(1) @binding(1) var<storage, read_write> rngStateBuffer: array<u32>;
+@group(1) @binding(1) var<storage, read_write> imageBuffer: array<vec3<f32>>;
+@group(1) @binding(2) var<storage, read_write> rngStateBuffer: array<u32>;
 
 @group(2) @binding(0) var<uniform> camera: Camera;
-@group(2) @binding(1) var<storage, read> spheres: array<Sphere>;
-@group(2) @binding(2) var<storage, read> materials: array<Material>;
+@group(2) @binding(1) var<uniform> samplingParams: SamplingParams;
+
+@group(3) @binding(0) var<storage, read> spheres: array<Sphere>;
+@group(3) @binding(1) var<storage, read> materials: array<Material>;
 
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -48,12 +51,33 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
     let idx = imageDimensions.x * y + x;
     var rngState = rngStateBuffer[idx];
 
-    let primaryRay = cameraMakeRay(camera, &rngState, u, 1f - v);
-    let rgb = rayColor(primaryRay, &rngState);
+    let rgb = samplePixel(x, y, &rngState);
 
+    if samplingParams.clearAccumulatedSamples == 1u {
+        imageBuffer[idx] = vec3(0f, 0f, 0f);
+    }
+    imageBuffer[idx] += rgb;
     rngStateBuffer[idx] = rngState;
 
-    return vec4(rgb, 1f);
+    let avgRgb = imageBuffer[idx] / f32(samplingParams.accumulatedSamplesPerPixel);
+    return vec4(avgRgb, 1f);
+}
+
+fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {
+    let invWidth = 1f / f32(imageDimensions.x);
+    let invHeight = 1f / f32(imageDimensions.y);
+
+    let numSamples = samplingParams.numSamplesPerPixel;
+    var color = vec3(0f, 0f, 0f);
+    for (var i = 0u; i < numSamples; i += 1u) {
+        let u = (f32(x) + rngNextFloat(rngState)) * invWidth;
+        let v = (f32(y) + rngNextFloat(rngState)) * invHeight;
+
+        let primaryRay = cameraMakeRay(camera, rngState, u, 1f - v);
+        color += rayColor(primaryRay, rngState);
+    }
+
+    return color;
 }
 
 fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
@@ -62,7 +86,7 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
     var color = vec3(0f, 0f, 0f);
     var throughput = vec3(1f, 1f, 1f);
 
-    for (var bounce = 0u; bounce < 8u; bounce += 1u) {
+    for (var bounce = 0u; bounce < samplingParams.numBounces; bounce += 1u) {
         var intersection = Intersection();
         var materialIdx = 0u;
 
@@ -180,6 +204,13 @@ fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
     var r0 = (1f - refractionIndex) / (1f + refractionIndex);
     r0 = r0 * r0;
     return r0 + pow((1f - r0) * (1f - cosine), 5f);
+}
+
+struct SamplingParams {
+    numSamplesPerPixel: u32,
+    numBounces: u32,
+    accumulatedSamplesPerPixel: u32,
+    clearAccumulatedSamples: u32,
 }
 
 struct Sphere {
