@@ -31,7 +31,7 @@ struct VertexOutput {
 }
 
 @group(1) @binding(0) var<uniform> imageDimensions: vec2<u32>;
-@group(1) @binding(1) var<storage, read_write> imageBuffer: array<vec3<f32>>;
+@group(1) @binding(1) var<storage, read_write> imageBuffer: array<array<f32, 3>>;
 @group(1) @binding(2) var<storage, read_write> rngStateBuffer: array<u32>;
 
 @group(2) @binding(0) var<uniform> camera: Camera;
@@ -49,18 +49,30 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
     let y = u32(v * f32(imageDimensions.y));
 
     let idx = imageDimensions.x * y + x;
+
     var rngState = rngStateBuffer[idx];
+    var pixel = imageBuffer[idx];    
+    {
+        if samplingParams.clearAccumulatedSamples == 1u {
+            pixel = array<f32, 3>(0f, 0f, 0f);
+        }
 
-    let rgb = samplePixel(x, y, &rngState);
+        let rgb = samplePixel(x, y, &rngState);
 
-    if samplingParams.clearAccumulatedSamples == 1u {
-        imageBuffer[idx] = vec3(0f, 0f, 0f);
+        pixel[0u] += rgb[0u];
+        pixel[1u] += rgb[1u];
+        pixel[2u] += rgb[2u];
     }
-    imageBuffer[idx] += rgb;
+    imageBuffer[idx] = pixel;
     rngStateBuffer[idx] = rngState;
 
-    let avgRgb = imageBuffer[idx] / f32(samplingParams.accumulatedSamplesPerPixel);
-    return vec4(avgRgb, 1f);
+    let invN = 1f / f32(samplingParams.accumulatedSamplesPerPixel);
+    return vec4(
+        invN * pixel[0u],
+        invN * pixel[1u],
+        invN * pixel[2u],
+        1f
+    );
 }
 
 fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {

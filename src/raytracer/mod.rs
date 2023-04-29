@@ -59,8 +59,7 @@ impl Raytracer {
         };
 
         let image_buffer = {
-            // TODO: try using array<array<f32, 3>>, memory layout should be tightly packed
-            let buffer = vec![[0_f32; 4]; max_viewport_resolution as usize];
+            let buffer = vec![[0_f32; 3]; max_viewport_resolution as usize];
             StorageBuffer::new_from_bytes(
                 device,
                 bytemuck::cast_slice(buffer.as_slice()),
