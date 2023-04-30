@@ -110,22 +110,12 @@ impl Raytracer {
             )
         };
 
-        let sampling_parameter_buffer = {
-            // TODO: these should be inlcuded in the render params
-            let sampling_params = GpuSamplingParams {
-                num_samples_per_pixel: 2_u32,
-                num_bounces: 6_u32,
-                accumulated_samples_per_pixel: 0_u32,
-                clear_accumulated_samples: 0_u32,
-            };
-
-            UniformBuffer::new_from_bytes(
-                device,
-                bytemuck::bytes_of(&sampling_params),
-                1_u32,
-                Some("sampling parameter buffer"),
-            )
-        };
+        let sampling_parameter_buffer = UniformBuffer::new(
+            device,
+            std::mem::size_of::<GpuSamplingParams>() as wgpu::BufferAddress,
+            1_u32,
+            Some("sampling parameter buffer"),
+        );
 
         let parameter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -561,10 +551,10 @@ impl GpuCamera {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuMaterial {
-    albedo: glm::Vec4,   // 0 bytes offset
-    x: f32,              // 16 bytes offset
-    id: u32,             // 20 bytes offset
-    _padding2: [u32; 2], // 24 bytes offset, 8 bytes size
+    albedo: glm::Vec4,  // 0 bytes offset
+    x: f32,             // 16 bytes offset
+    id: u32,            // 20 bytes offset
+    _padding: [u32; 2], // 24 bytes offset, 8 bytes size
 }
 
 impl GpuMaterial {
@@ -573,7 +563,7 @@ impl GpuMaterial {
             albedo: glm::vec3_to_vec4(&albedo),
             x: 0_f32,
             id: 0,
-            _padding2: [0_u32; 2],
+            _padding: [0_u32; 2],
         }
     }
 
@@ -582,7 +572,7 @@ impl GpuMaterial {
             albedo: glm::vec3_to_vec4(&albedo),
             x: fuzz,
             id: 1,
-            _padding2: [0_u32; 2],
+            _padding: [0_u32; 2],
         }
     }
 
@@ -591,7 +581,7 @@ impl GpuMaterial {
             albedo: glm::vec4(0_f32, 0_f32, 0_f32, 0_f32),
             x: refraction_index,
             id: 2,
-            _padding2: [0_u32; 2],
+            _padding: [0_u32; 2],
         }
     }
 }
