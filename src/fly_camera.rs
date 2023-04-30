@@ -32,7 +32,7 @@ impl Default for FlyCameraController {
             yaw: Angle::degrees(25_f32),
             pitch: Angle::degrees(-10_f32),
             vfov_degrees: 30.0,
-            aperture: 1.0,
+            aperture: 0.8,
             focus_distance,
             forward_pressed: false,
             backward_pressed: false,

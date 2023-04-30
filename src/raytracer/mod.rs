@@ -355,6 +355,11 @@ impl Raytracer {
 
         Ok(())
     }
+
+    pub fn progress(&self) -> f32 {
+        self.render_progress.accumulated_samples() as f32
+            / self.latest_render_params.sampling.max_samples_per_pixel as f32
+    }
 }
 
 #[derive(Error, Debug)]
@@ -432,6 +437,16 @@ pub struct SamplingParams {
     pub num_bounces: u32,
 }
 
+impl Default for SamplingParams {
+    fn default() -> Self {
+        Self {
+            max_samples_per_pixel: 128_u32,
+            num_samples_per_pixel: 2_u32,
+            num_bounces: 8_u32,
+        }
+    }
+}
+
 struct RenderProgress {
     accumulated_samples_per_pixel: u32,
 }
@@ -485,6 +500,10 @@ impl RenderProgress {
 
     pub fn reset(&mut self) {
         self.accumulated_samples_per_pixel = 0_u32;
+    }
+
+    pub fn accumulated_samples(&self) -> u32 {
+        self.accumulated_samples_per_pixel
     }
 }
 

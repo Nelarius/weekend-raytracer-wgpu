@@ -46,11 +46,7 @@ fn main() {
 
     let mut render_params = RenderParams {
         camera: fly_camera_controller.renderer_camera(),
-        sampling: SamplingParams {
-            max_samples_per_pixel: 128_u32,
-            num_samples_per_pixel: 4_u32,
-            num_bounces: 8_u32,
-        },
+        sampling: SamplingParams::default(),
         viewport_size,
     };
     let mut raytracer = Raytracer::new(
@@ -157,26 +153,81 @@ fn main() {
                         window
                             .size([300.0, 300.0], imgui::Condition::FirstUseEver)
                             .build(|| {
-                                ui.text(format!("FPS: {:.1}", fps_counter.average_fps()));
+                                ui.text(format!(
+                                    "FPS: {:.1}, render progress: {:.1} %",
+                                    fps_counter.average_fps(),
+                                    raytracer.progress() * 100.0
+                                ));
                                 ui.separator();
 
-                                ui.text("Camera parameters:");
-                                ui.slider(
-                                    "aperture radius",
-                                    0.01_f32,
-                                    1_f32,
-                                    &mut fly_camera_controller.aperture,
+                                ui.text("Sampling parameters");
+
+                                ui.text("num_samples_per_pixel");
+                                ui.same_line();
+                                ui.radio_button(
+                                    "1",
+                                    &mut render_params.sampling.num_samples_per_pixel,
+                                    1_u32,
                                 );
+                                ui.same_line();
+                                ui.radio_button(
+                                    "2",
+                                    &mut render_params.sampling.num_samples_per_pixel,
+                                    2_u32,
+                                );
+                                ui.same_line();
+                                ui.radio_button(
+                                    "4",
+                                    &mut render_params.sampling.num_samples_per_pixel,
+                                    4_u32,
+                                );
+
+                                ui.text("max_samples_per_pixel");
+                                ui.same_line();
+                                ui.radio_button(
+                                    "128",
+                                    &mut render_params.sampling.max_samples_per_pixel,
+                                    128_u32,
+                                );
+                                ui.same_line();
+                                ui.radio_button(
+                                    "256",
+                                    &mut render_params.sampling.max_samples_per_pixel,
+                                    256_u32,
+                                );
+                                ui.same_line();
+                                ui.radio_button(
+                                    "512",
+                                    &mut render_params.sampling.max_samples_per_pixel,
+                                    512_u32,
+                                );
+
                                 ui.slider(
-                                    "vertical FOV",
-                                    10_f32,
-                                    100_f32,
+                                    "num_bounces",
+                                    4,
+                                    10,
+                                    &mut render_params.sampling.num_bounces,
+                                );
+
+                                ui.separator();
+
+                                ui.text("Camera parameters");
+                                ui.slider(
+                                    "vfov",
+                                    10.0,
+                                    90.0,
                                     &mut fly_camera_controller.vfov_degrees,
                                 );
                                 ui.slider(
-                                    "focal distance",
-                                    4_f32,
-                                    40_f32,
+                                    "aperture",
+                                    0.0,
+                                    1.0,
+                                    &mut fly_camera_controller.aperture,
+                                );
+                                ui.slider(
+                                    "focus_distance",
+                                    5.0,
+                                    20.0,
                                     &mut fly_camera_controller.focus_distance,
                                 );
                             });
