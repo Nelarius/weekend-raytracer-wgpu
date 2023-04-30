@@ -2,6 +2,8 @@ pub use angle::Angle;
 use gpu_buffer::{StorageBuffer, UniformBuffer};
 use wgpu::util::DeviceExt;
 
+use thiserror::Error;
+
 mod angle;
 mod gpu_buffer;
 
@@ -290,9 +292,48 @@ impl Raytracer {
         render_pass.draw(0..num_vertices, 0..1);
     }
 
-    pub fn set_render_params(&mut self, queue: &wgpu::Queue, render_params: RenderParams) {
+    pub fn set_render_params(
+        &mut self,
+        queue: &wgpu::Queue,
+        render_params: RenderParams,
+    ) -> Result<(), RenderParamsValidationError> {
         if render_params == self.latest_render_params {
-            return;
+            return Ok(());
+        }
+
+        if render_params.sampling.max_samples_per_pixel
+            % render_params.sampling.num_samples_per_pixel
+            != 0
+        {
+            return Err(RenderParamsValidationError::MaxSampleCountNotMultiple(
+                render_params.sampling.max_samples_per_pixel,
+                render_params.sampling.num_samples_per_pixel,
+            ));
+        }
+
+        if render_params.viewport_size.0 == 0_u32 || render_params.viewport_size.1 == 0_u32 {
+            return Err(RenderParamsValidationError::ViewportSize(
+                render_params.viewport_size.0,
+                render_params.viewport_size.1,
+            ));
+        }
+
+        if !(Angle::degrees(0.0)..=Angle::degrees(90.0)).contains(&render_params.camera.vfov) {
+            return Err(RenderParamsValidationError::VfovOutOfRange(
+                render_params.camera.vfov.as_degrees(),
+            ));
+        }
+
+        if !(0.0..=1.0).contains(&render_params.camera.aperture) {
+            return Err(RenderParamsValidationError::ApertureOutOfRange(
+                render_params.camera.aperture,
+            ));
+        }
+
+        if render_params.camera.focus_distance < 0.0 {
+            return Err(RenderParamsValidationError::FocusDistanceOutOfRange(
+                render_params.camera.focus_distance,
+            ));
         }
 
         self.latest_render_params = render_params;
@@ -309,10 +350,25 @@ impl Raytracer {
             let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
             queue.write_buffer(&self.camera_buffer.handle(), 0, bytemuck::bytes_of(&camera));
         }
-        {
-            self.render_progress.reset();
-        }
+
+        self.render_progress.reset();
+
+        Ok(())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum RenderParamsValidationError {
+    #[error("max_samples_per_pixel ({0}) is not a multiple of num_samples_per_pixel ({1})")]
+    MaxSampleCountNotMultiple(u32, u32),
+    #[error("viewport_size elements cannot be zero: ({0}, {1})")]
+    ViewportSize(u32, u32),
+    #[error("vfov must be between 0..=90 degrees")]
+    VfovOutOfRange(f32),
+    #[error("aperture must be between 0..=1")]
+    ApertureOutOfRange(f32),
+    #[error("focus_distance must be greater than zero")]
+    FocusDistanceOutOfRange(f32),
 }
 
 pub struct Scene {
@@ -361,8 +417,11 @@ pub struct Camera {
     pub eye_pos: glm::Vec3,
     pub eye_dir: glm::Vec3,
     pub up: glm::Vec3,
+    /// Angle must be between 0..=90 degrees.
     pub vfov: Angle,
+    /// Aperture must be between 0..=1.
     pub aperture: f32,
+    /// Focus distance must be a positive number.
     pub focus_distance: f32,
 }
 
