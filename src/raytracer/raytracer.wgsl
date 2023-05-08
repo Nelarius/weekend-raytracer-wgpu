@@ -115,19 +115,19 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             }
         }
 
-        // The ray missed. Output background color.
-        if closestT == maxT {
+        if closestT < maxT {
+            // Scatter the ray from the surface
+            let material = materials[materialIdx];
+            var scatter = scatterRay(ray, intersection, material, rngState);
+            ray = scatter.ray;
+            throughput *= scatter.albedo;
+        } else {
+            // The ray missed. Output background color.
             let unitDirection = normalize(ray.direction);
             let t = 0.5f * (unitDirection.y + 1f);
             color = (1f - t) * vec3(1f, 1f, 1f) + t * vec3(0.5f, 0.7f, 1f);
             break;
         }
-
-        // Scatter the ray from the surface
-        let material = materials[materialIdx];
-        var scatter = scatterRay(ray, intersection, material, rngState);
-        ray = scatter.ray;
-        throughput *= scatter.albedo;
     }
 
     return throughput * color;
