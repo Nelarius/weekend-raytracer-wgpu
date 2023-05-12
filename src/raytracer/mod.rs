@@ -161,7 +161,7 @@ impl Raytracer {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             source: wgpu::ShaderSource::Wgsl(include_str!("raytracer.wgsl").into()),
-            label: Some("quad.wgsl"),
+            label: Some("raytracer.wgsl"),
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -172,7 +172,7 @@ impl Raytracer {
                 &scene_bind_group_layout,
             ],
             push_constant_ranges: &[],
-            label: Some("quad.wgsl layout"),
+            label: Some("raytracer layout"),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: Some(&pipeline_layout),
@@ -209,7 +209,7 @@ impl Raytracer {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            label: Some("quad.wgsl pipeline"),
+            label: Some("raytracer pipeline"),
             // If the pipeline will be used with a multiview render pass, this
             // indicates how many array layers the attachments will have.
             multiview: None,

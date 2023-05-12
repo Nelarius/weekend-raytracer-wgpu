@@ -230,7 +230,7 @@ struct SamplingParams {
 }
 
 struct Sphere {
-    center_and_pad: vec4<f32>,
+    centerAndPad: vec4<f32>,
     radius: f32,
     materialIdx: u32,
 }
@@ -258,7 +258,7 @@ struct Intersection {
 }
 
 fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<function, Intersection>) -> bool {
-    let oc = ray.origin - sphere.center_and_pad.xyz;
+    let oc = ray.origin - sphere.centerAndPad.xyz;
     let a = dot(ray.direction, ray.direction);
     let b = dot(oc, ray.direction);
     let c = dot(oc, oc) - sphere.radius * sphere.radius;
@@ -283,7 +283,7 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
 
 fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
-    let n = (1f / sphere.radius) * (p - sphere.center_and_pad.xyz);
+    let n = (1f / sphere.radius) * (p - sphere.centerAndPad.xyz);
 
     return Intersection(p, n, t);
 }
