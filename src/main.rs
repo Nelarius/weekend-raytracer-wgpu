@@ -8,7 +8,7 @@
 pub extern crate nalgebra_glm as glm;
 
 use fly_camera::FlyCameraController;
-use raytracer::{Material, Raytracer, RenderParams, SamplingParams, Scene, Sphere};
+use raytracer::{Material, Raytracer, RenderParams, SamplingParams, Scene, SkyParams, Sphere};
 use std::{collections::VecDeque, time::Instant};
 use winit::{
     event::{Event, WindowEvent},
@@ -46,6 +46,7 @@ fn main() {
 
     let mut render_params = RenderParams {
         camera: fly_camera_controller.renderer_camera(),
+        sky: SkyParams::default(),
         sampling: SamplingParams::default(),
         viewport_size,
     };
@@ -231,6 +232,29 @@ fn main() {
                                     20.0,
                                     &mut fly_camera_controller.focus_distance,
                                 );
+
+                                ui.separator();
+
+                                ui.text("Sky parameters");
+                                ui.slider(
+                                    "azimuth",
+                                    0_f32,
+                                    360_f32,
+                                    &mut render_params.sky.azimuth_degrees,
+                                );
+                                ui.slider(
+                                    "inclination",
+                                    0_f32,
+                                    90_f32,
+                                    &mut render_params.sky.zenith_degrees,
+                                );
+                                ui.slider(
+                                    "turbidity",
+                                    1_f32,
+                                    10_f32,
+                                    &mut render_params.sky.turbidity,
+                                );
+                                ui.color_edit3("albedo", &mut render_params.sky.albedo);
                             });
                     }
 
@@ -241,7 +265,7 @@ fn main() {
                 }
 
                 render_params.camera = fly_camera_controller.renderer_camera();
-                match raytracer.set_render_params(&context.queue, render_params) {
+                match raytracer.set_render_params(&context.queue, &render_params) {
                     Err(e) => {
                         eprintln!("Error setting render params: {e}")
                     }
@@ -341,6 +365,7 @@ impl GpuContext {
                     features: wgpu::Features::empty(),
                     limits: wgpu::Limits {
                         max_storage_buffer_binding_size: 512_u32 << 20,
+                        max_bind_groups: 5,
                         ..Default::default()
                     },
                     label: None,

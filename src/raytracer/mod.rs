@@ -7,6 +7,8 @@ use thiserror::Error;
 mod angle;
 mod gpu_buffer;
 
+use std::f32::consts::*;
+
 pub struct Raytracer {
     vertex_uniform_bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
@@ -16,6 +18,8 @@ pub struct Raytracer {
     sampling_parameter_buffer: UniformBuffer,
     parameter_bind_group: wgpu::BindGroup,
     scene_bind_group: wgpu::BindGroup,
+    hw_sky_state_buffer: StorageBuffer,
+    hw_sky_state_bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
     latest_render_params: RenderParams,
     render_progress: RenderProgress,
@@ -159,6 +163,29 @@ impl Raytracer {
             (scene_bind_group_layout, scene_bind_group)
         };
 
+        let hw_sky_state_buffer = {
+            let sky_state = render_params.sky.to_sky_state()?;
+
+            StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::bytes_of(&sky_state),
+                0_u32,
+                Some("sky state buffer"),
+            )
+        };
+
+        let hw_sky_state_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[hw_sky_state_buffer.layout(wgpu::ShaderStages::FRAGMENT, true)],
+                label: Some("compute: sky state group layout"),
+            });
+
+        let hw_sky_state_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &hw_sky_state_bind_group_layout,
+            entries: &[hw_sky_state_buffer.binding()],
+            label: Some("sky state bind group"),
+        });
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             source: wgpu::ShaderSource::Wgsl(include_str!("raytracer.wgsl").into()),
             label: Some("raytracer.wgsl"),
@@ -170,6 +197,7 @@ impl Raytracer {
                 &image_bind_group_layout,
                 &parameter_bind_group_layout,
                 &scene_bind_group_layout,
+                &hw_sky_state_bind_group_layout,
             ],
             push_constant_ranges: &[],
             label: Some("raytracer layout"),
@@ -233,6 +261,8 @@ impl Raytracer {
             sampling_parameter_buffer,
             parameter_bind_group,
             scene_bind_group,
+            hw_sky_state_buffer,
+            hw_sky_state_bind_group,
             vertex_buffer,
             pipeline,
             latest_render_params: *render_params,
@@ -274,6 +304,7 @@ impl Raytracer {
         render_pass.set_bind_group(1, &self.image_bind_group, &[]);
         render_pass.set_bind_group(2, &self.parameter_bind_group, &[]);
         render_pass.set_bind_group(3, &self.scene_bind_group, &[]);
+        render_pass.set_bind_group(4, &self.hw_sky_state_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
         let num_vertices = VERTICES.len() as u32;
@@ -285,9 +316,9 @@ impl Raytracer {
     pub fn set_render_params(
         &mut self,
         queue: &wgpu::Queue,
-        render_params: RenderParams,
+        render_params: &RenderParams,
     ) -> Result<(), RenderParamsValidationError> {
-        if render_params == self.latest_render_params {
+        if *render_params == self.latest_render_params {
             return Ok(());
         }
 
@@ -296,12 +327,21 @@ impl Raytracer {
             Err(err) => return Err(err),
         }
 
-        self.latest_render_params = render_params;
+        {
+            let sky_state = render_params.sky.to_sky_state()?;
+            queue.write_buffer(
+                &self.hw_sky_state_buffer.handle(),
+                0,
+                bytemuck::bytes_of(&sky_state),
+            );
+        }
 
         {
             let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
             queue.write_buffer(&self.camera_buffer.handle(), 0, bytemuck::bytes_of(&camera));
         }
+
+        self.latest_render_params = *render_params;
 
         self.render_progress.reset();
 
@@ -326,6 +366,8 @@ pub enum RenderParamsValidationError {
     ApertureOutOfRange(f32),
     #[error("focus_distance must be greater than zero")]
     FocusDistanceOutOfRange(f32),
+    #[error(transparent)]
+    HwSkyModelValidationError(#[from] hw_skymodel::rgb::Error),
 }
 
 pub struct Scene {
@@ -365,6 +407,7 @@ pub enum Material {
 #[derive(Clone, Copy, PartialEq)]
 pub struct RenderParams {
     pub camera: Camera,
+    pub sky: SkyParams,
     pub sampling: SamplingParams,
     pub viewport_size: (u32, u32),
 }
@@ -418,6 +461,57 @@ pub struct Camera {
     pub aperture: f32,
     /// Focus distance must be a positive number.
     pub focus_distance: f32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct SkyParams {
+    // Azimuth must be between 0..=360 degrees
+    pub azimuth_degrees: f32,
+    // Inclination must be between 0..=90 degrees
+    pub zenith_degrees: f32,
+    // Turbidity must be between 1..=10
+    pub turbidity: f32,
+    // Albedo elements must be between 0..=1
+    pub albedo: [f32; 3],
+}
+
+impl Default for SkyParams {
+    fn default() -> Self {
+        Self {
+            azimuth_degrees: 0_f32,
+            zenith_degrees: 85_f32,
+            turbidity: 4_f32,
+            albedo: [1_f32; 3],
+        }
+    }
+}
+
+impl SkyParams {
+    fn to_sky_state(self: &SkyParams) -> Result<GpuSkyState, hw_skymodel::rgb::Error> {
+        let azimuth = Angle::degrees(self.azimuth_degrees).as_radians();
+        let zenith = Angle::degrees(self.zenith_degrees).as_radians();
+        let sun_direction = [
+            zenith.sin() * azimuth.cos(),
+            zenith.cos(),
+            zenith.sin() * azimuth.sin(),
+            0_f32,
+        ];
+
+        let state = hw_skymodel::rgb::SkyState::new(&hw_skymodel::rgb::SkyParams {
+            elevation: FRAC_PI_2 - zenith,
+            turbidity: self.turbidity,
+            albedo: self.albedo,
+        })?;
+
+        let (params_data, radiance_data) = state.raw();
+
+        Ok(GpuSkyState {
+            params: params_data,
+            radiances: radiance_data,
+            _padding: [0_u32, 2],
+            sun_direction,
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -584,6 +678,15 @@ impl GpuMaterial {
             _padding: [0_u32; 2],
         }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct GpuSkyState {
+    params: [f32; 27],       // 0 byte offset, 108 byte size
+    radiances: [f32; 3],     // 108 byte offset, 12 byte size
+    _padding: [u32; 2],      // 120 byte offset, 8 byte size
+    sun_direction: [f32; 4], // 128 byte offset, 16 byte size
 }
 
 #[repr(C)]

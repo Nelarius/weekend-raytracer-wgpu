@@ -1,9 +1,15 @@
+const epsilon = 0.001f;
+
 const pi = 3.1415927f;
 const frac1Pi = 0.31830987f;
 const fracPi2 = 1.5707964f;
 
 const minT = 0.001f;
 const maxT = 1000f;
+
+const channelR = 0u;
+const channelG = 1u;
+const channelB = 2u;
 
 @group(0) @binding(0) var<uniform> vertexUniforms: VertexUniforms;
 
@@ -39,6 +45,8 @@ struct VertexOutput {
 @group(3) @binding(0) var<storage, read> spheres: array<Sphere>;
 @group(3) @binding(1) var<storage, read> materials: array<Material>;
 
+@group(4) @binding(0) var<storage, read> skyState: SkyState;
+
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
     let u = in.texCoords.x;
@@ -50,31 +58,48 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let x = u32(u * f32(imageWidth));
     let y = u32(v * f32(imageHeight));
-
     let idx = imageWidth * y + x;
 
     var rngState = initRng(vec2(x, y), vec2(imageWidth, imageHeight), frameNumber);
-    var pixel = imageBuffer[idx];
-        {
+    var pixel = vec3(imageBuffer[idx][0u], imageBuffer[idx][1u], imageBuffer[idx][2u]);
+    {
         if samplingParams.clearAccumulatedSamples == 1u {
-            pixel = array<f32, 3>(0f, 0f, 0f);
+            pixel = vec3(0f, 0f, 0f);
         }
 
         let rgb = samplePixel(x, y, &rngState);
-
-        pixel[0u] += rgb[0u];
-        pixel[1u] += rgb[1u];
-        pixel[2u] += rgb[2u];
+        pixel += rgb;
     }
-    imageBuffer[idx] = pixel;
+    imageBuffer[idx] = array<f32, 3>(pixel.r, pixel.g, pixel.b);
 
     let invN = 1f / f32(samplingParams.accumulatedSamplesPerPixel);
+
     return vec4(
-        invN * pixel[0u],
-        invN * pixel[1u],
-        invN * pixel[2u],
+        uncharted2(invN * pixel),
         1f
     );
+}
+
+fn uncharted2(x: vec3<f32>) -> vec3<f32> {
+    // Based on uncharted2 tonemapping function
+    // https://dmnsgn.github.io/glsl-tone-map/
+    let exposureBias = 0.246;   // determined experimentally for the scene
+    let curr = uncharted2Tonemap(exposureBias * x);
+
+    let w = 11.2;
+    let whiteScale = 1f / uncharted2Tonemap(vec3(w));
+    return whiteScale * curr;
+}
+
+fn uncharted2Tonemap(x: vec3<f32>) -> vec3<f32> {
+    let a = 0.15;
+    let b = 0.50;
+    let c = 0.10;
+    let d = 0.20;
+    let e = 0.02;
+    let f = 0.30;
+    let w = 11.2;
+    return ((x*(a*x+c*b)+d*e)/(x*(a*x+b)+d*f))-e/f;
 }
 
 fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {
@@ -127,9 +152,18 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             throughput *= scatter.albedo;
         } else {
             // The ray missed. Output background color.
-            let unitDirection = normalize(ray.direction);
-            let t = 0.5f * (unitDirection.y + 1f);
-            color = (1f - t) * vec3(1f, 1f, 1f) + t * vec3(0.5f, 0.7f, 1f);
+            let v = normalize(ray.direction);
+            let s = skyState.sunDirection;
+
+            let theta = acos(v.y);
+            let gamma = acos(clamp(dot(v, s), -1f, 1f));
+
+            color = vec3(
+                radiance(theta, gamma, channelR),
+                radiance(theta, gamma, channelG),
+                radiance(theta, gamma, channelB)
+            );
+
             break;
         }
     }
@@ -221,6 +255,41 @@ fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
     r0 = r0 * r0;
     return r0 + pow((1f - r0) * (1f - cosine), 5f);
 }
+
+fn radiance(theta: f32, gamma: f32, channel: u32) -> f32 {
+    let r = skyState.radiances[channel];
+    let idx = 9u * channel;
+    let p0 = skyState.params[idx + 0u];
+    let p1 = skyState.params[idx + 1u];
+    let p2 = skyState.params[idx + 2u];
+    let p3 = skyState.params[idx + 3u];
+    let p4 = skyState.params[idx + 4u];
+    let p5 = skyState.params[idx + 5u];
+    let p6 = skyState.params[idx + 6u];
+    let p7 = skyState.params[idx + 7u];
+    let p8 = skyState.params[idx + 8u];
+
+    let cosGamma = cos(gamma);
+    let cosGamma2 = cosGamma * cosGamma;
+    let cosTheta = abs(cos(theta));
+
+    let expM = exp(p4 * gamma);
+    let rayM = cosGamma2;
+    let mieMLhs = 1.0 + cosGamma2;
+    let mieMRhs = pow(1.0 + p8 * p8 - 2.0 * p8 * cosGamma, 1.5f);
+    let mieM = mieMLhs / mieMRhs;
+    let zenith = sqrt(cosTheta);
+    let radianceLhs = 1.0 + p0 * exp(p1 / (cosTheta + 0.01));
+    let radianceRhs = p2 + p3 * expM + p5 * rayM + p6 * mieM + p7 * zenith;
+    let radianceDist = radianceLhs * radianceRhs;
+    return r * radianceDist;
+}
+
+struct SkyState {
+    params: array<f32, 27>,
+    radiances: array<f32, 3>,
+    sunDirection: vec3<f32>,
+};
 
 struct SamplingParams {
     numSamplesPerPixel: u32,
