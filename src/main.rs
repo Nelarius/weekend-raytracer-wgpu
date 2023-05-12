@@ -55,7 +55,8 @@ fn main() {
         &scene,
         &render_params,
         max_viewport_resolution,
-    );
+    )
+    .expect("The default values should be selected correctly");
 
     let mut imgui = imgui::Context::create();
     let mut imgui_platform = imgui_winit_support::WinitPlatform::init(&mut imgui);

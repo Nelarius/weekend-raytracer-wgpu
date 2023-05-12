@@ -29,7 +29,12 @@ impl Raytracer {
         scene: &Scene,
         render_params: &RenderParams,
         max_viewport_resolution: u32,
-    ) -> Self {
+    ) -> Result<Self, RenderParamsValidationError> {
+        match render_params.validate() {
+            Ok(_) => {}
+            Err(err) => return Err(err),
+        }
+
         let uniforms = VertexUniforms {
             view_projection_matrix: unit_quad_projection_matrix(),
             model_matrix: glm::identity(),
@@ -220,7 +225,7 @@ impl Raytracer {
 
         let frame_number = 1_u32;
 
-        Self {
+        Ok(Self {
             vertex_uniform_bind_group,
             frame_data_buffer,
             image_bind_group,
@@ -233,7 +238,7 @@ impl Raytracer {
             latest_render_params: *render_params,
             render_progress,
             frame_number,
-        }
+        })
     }
 
     pub fn render_frame<'a>(
@@ -286,39 +291,9 @@ impl Raytracer {
             return Ok(());
         }
 
-        if render_params.sampling.max_samples_per_pixel
-            % render_params.sampling.num_samples_per_pixel
-            != 0
-        {
-            return Err(RenderParamsValidationError::MaxSampleCountNotMultiple(
-                render_params.sampling.max_samples_per_pixel,
-                render_params.sampling.num_samples_per_pixel,
-            ));
-        }
-
-        if render_params.viewport_size.0 == 0_u32 || render_params.viewport_size.1 == 0_u32 {
-            return Err(RenderParamsValidationError::ViewportSize(
-                render_params.viewport_size.0,
-                render_params.viewport_size.1,
-            ));
-        }
-
-        if !(Angle::degrees(0.0)..=Angle::degrees(90.0)).contains(&render_params.camera.vfov) {
-            return Err(RenderParamsValidationError::VfovOutOfRange(
-                render_params.camera.vfov.as_degrees(),
-            ));
-        }
-
-        if !(0.0..=1.0).contains(&render_params.camera.aperture) {
-            return Err(RenderParamsValidationError::ApertureOutOfRange(
-                render_params.camera.aperture,
-            ));
-        }
-
-        if render_params.camera.focus_distance < 0.0 {
-            return Err(RenderParamsValidationError::FocusDistanceOutOfRange(
-                render_params.camera.focus_distance,
-            ));
+        match render_params.validate() {
+            Ok(_) => {}
+            Err(err) => return Err(err),
         }
 
         self.latest_render_params = render_params;
@@ -392,6 +367,44 @@ pub struct RenderParams {
     pub camera: Camera,
     pub sampling: SamplingParams,
     pub viewport_size: (u32, u32),
+}
+
+impl RenderParams {
+    fn validate(&self) -> Result<(), RenderParamsValidationError> {
+        if self.sampling.max_samples_per_pixel % self.sampling.num_samples_per_pixel != 0 {
+            return Err(RenderParamsValidationError::MaxSampleCountNotMultiple(
+                self.sampling.max_samples_per_pixel,
+                self.sampling.num_samples_per_pixel,
+            ));
+        }
+
+        if self.viewport_size.0 == 0_u32 || self.viewport_size.1 == 0_u32 {
+            return Err(RenderParamsValidationError::ViewportSize(
+                self.viewport_size.0,
+                self.viewport_size.1,
+            ));
+        }
+
+        if !(Angle::degrees(0.0)..=Angle::degrees(90.0)).contains(&self.camera.vfov) {
+            return Err(RenderParamsValidationError::VfovOutOfRange(
+                self.camera.vfov.as_degrees(),
+            ));
+        }
+
+        if !(0.0..=1.0).contains(&self.camera.aperture) {
+            return Err(RenderParamsValidationError::ApertureOutOfRange(
+                self.camera.aperture,
+            ));
+        }
+
+        if self.camera.focus_distance < 0.0 {
+            return Err(RenderParamsValidationError::FocusDistanceOutOfRange(
+                self.camera.focus_distance,
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
