@@ -8,7 +8,9 @@
 pub extern crate nalgebra_glm as glm;
 
 use fly_camera::FlyCameraController;
-use raytracer::{Material, Raytracer, RenderParams, SamplingParams, Scene, SkyParams, Sphere};
+use raytracer::{
+    Material, Raytracer, RenderParams, SamplingParams, Scene, SkyParams, Sphere, Texture,
+};
 use std::{collections::VecDeque, time::Instant};
 use winit::{
     event::{Event, WindowEvent},
@@ -426,17 +428,22 @@ impl FpsCounter {
 fn scene() -> Scene {
     let materials = vec![
         Material::Lambertian {
-            albedo: glm::vec3(0.9_f32, 0.9_f32, 0.9_f32),
+            albedo: Texture::new_from_color(glm::vec3(0.9_f32, 0.9_f32, 0.9_f32)),
         },
         Material::Lambertian {
-            albedo: glm::vec3(0.3_f32, 0.9_f32, 0.9_f32),
+            albedo: Texture::new_from_image("assets/moon.jpeg")
+                .expect("Hardcoded path should be valid"),
         },
         Material::Metal {
-            albedo: glm::vec3(1_f32, 0.85_f32, 0.57_f32),
+            albedo: Texture::new_from_color(glm::vec3(1_f32, 0.85_f32, 0.57_f32)),
             fuzz: 0.4_f32,
         },
         Material::Dielectric {
             refraction_index: 1.5_f32,
+        },
+        Material::Lambertian {
+            albedo: Texture::new_from_image("assets/earthmap.jpeg")
+                .expect("Hardcoded path should be valid"),
         },
     ];
 
@@ -444,7 +451,8 @@ fn scene() -> Scene {
         Sphere::new(glm::vec3(0.0, -500.0, -1.0), 500.0, 0_u32),
         Sphere::new(glm::vec3(0.0, 1.0, 0.0), 1.0, 3_u32),
         Sphere::new(glm::vec3(-5.0, 1.0, 0.0), 1.0, 2_u32),
-        Sphere::new(glm::vec3(5.0, 1.0, 0.0), 1.0, 1_u32),
+        Sphere::new(glm::vec3(5.0, 0.8, 1.5), 0.8, 1_u32),
+        Sphere::new(glm::vec3(5.0, 1.2, -1.5), 1.2, 4_u32),
     ];
 
     Scene { spheres, materials }

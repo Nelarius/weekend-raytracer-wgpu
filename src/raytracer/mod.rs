@@ -1,11 +1,12 @@
-pub use angle::Angle;
 use gpu_buffer::{StorageBuffer, UniformBuffer};
 use wgpu::util::DeviceExt;
+pub use {angle::Angle, texture::Texture};
 
 use thiserror::Error;
 
 mod angle;
 mod gpu_buffer;
+mod texture;
 
 use std::f32::consts::*;
 
@@ -143,22 +144,37 @@ impl Raytracer {
                 Some("scene buffer"),
             );
 
-            let materials = scene
-                .materials
-                .iter()
-                .map(|material| match material {
-                    Material::Lambertian { albedo } => GpuMaterial::lambertian(*albedo),
-                    Material::Metal { albedo, fuzz } => GpuMaterial::metal(*albedo, *fuzz),
+            let mut global_texture_data: Vec<[f32; 3]> = Vec::new();
+            let mut material_data: Vec<GpuMaterial> = Vec::with_capacity(scene.materials.len());
+
+            for material in scene.materials.iter() {
+                let gpu_material = match material {
+                    Material::Lambertian { albedo } => {
+                        GpuMaterial::lambertian(albedo, &mut global_texture_data)
+                    }
+                    Material::Metal { albedo, fuzz } => {
+                        GpuMaterial::metal(albedo, *fuzz, &mut global_texture_data)
+                    }
                     Material::Dielectric { refraction_index } => {
                         GpuMaterial::dielectric(*refraction_index)
                     }
-                })
-                .collect::<Vec<_>>();
+                };
+
+                material_data.push(gpu_material);
+            }
+
             let material_buffer = StorageBuffer::new_from_bytes(
                 device,
-                bytemuck::cast_slice(materials.as_slice()),
+                bytemuck::cast_slice(material_data.as_slice()),
                 1_u32,
-                Some("material buffer"),
+                Some("materials buffer"),
+            );
+
+            let texture_buffer = StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::cast_slice(global_texture_data.as_slice()),
+                2_u32,
+                Some("textures buffer"),
             );
 
             let scene_bind_group_layout =
@@ -166,12 +182,17 @@ impl Raytracer {
                     entries: &[
                         sphere_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                         material_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
+                        texture_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                     ],
                     label: Some("scene layout"),
                 });
             let scene_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &scene_bind_group_layout,
-                entries: &[sphere_buffer.binding(), material_buffer.binding()],
+                entries: &[
+                    sphere_buffer.binding(),
+                    material_buffer.binding(),
+                    texture_buffer.binding(),
+                ],
                 label: Some("scene bind group"),
             });
 
@@ -388,8 +409,8 @@ impl Sphere {
 }
 
 pub enum Material {
-    Lambertian { albedo: glm::Vec3 },
-    Metal { albedo: glm::Vec3, fuzz: f32 },
+    Lambertian { albedo: Texture },
+    Metal { albedo: Texture, fuzz: f32 },
     Dielectric { refraction_index: f32 },
 }
 
@@ -634,37 +655,65 @@ impl GpuCamera {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuMaterial {
-    albedo: glm::Vec4,  // 0 bytes offset
-    x: f32,             // 16 bytes offset
-    id: u32,            // 20 bytes offset
-    _padding: [u32; 2], // 24 bytes offset, 8 bytes size
+    id: u32,
+    desc: TextureDescriptor,
+    x: f32,
 }
 
 impl GpuMaterial {
-    pub fn lambertian(albedo: glm::Vec3) -> Self {
+    pub fn lambertian(albedo: &Texture, global_texture_data: &mut Vec<[f32; 3]>) -> Self {
         Self {
-            albedo: glm::vec3_to_vec4(&albedo),
+            id: 0_u32,
+            desc: Self::append_to_global_texture_data(albedo, global_texture_data),
             x: 0_f32,
-            id: 0,
-            _padding: [0_u32; 2],
         }
     }
 
-    pub fn metal(albedo: glm::Vec3, fuzz: f32) -> Self {
+    pub fn metal(albedo: &Texture, fuzz: f32, global_texture_data: &mut Vec<[f32; 3]>) -> Self {
         Self {
-            albedo: glm::vec3_to_vec4(&albedo),
+            id: 1_u32,
+            desc: Self::append_to_global_texture_data(albedo, global_texture_data),
             x: fuzz,
-            id: 1,
-            _padding: [0_u32; 2],
         }
     }
 
     pub fn dielectric(refraction_index: f32) -> Self {
         Self {
-            albedo: glm::vec4(0_f32, 0_f32, 0_f32, 0_f32),
+            id: 2_u32,
+            desc: TextureDescriptor::empty(),
             x: refraction_index,
-            id: 2,
-            _padding: [0_u32; 2],
+        }
+    }
+
+    fn append_to_global_texture_data(
+        texture: &Texture,
+        global_texture_data: &mut Vec<[f32; 3]>,
+    ) -> TextureDescriptor {
+        let dimensions = texture.dimensions();
+        let offset = global_texture_data.len() as u32;
+        global_texture_data.extend_from_slice(texture.as_slice());
+        TextureDescriptor {
+            width: dimensions.0,
+            height: dimensions.1,
+            offset,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct TextureDescriptor {
+    width: u32,
+    height: u32,
+    offset: u32,
+}
+
+impl TextureDescriptor {
+    pub fn empty() -> Self {
+        Self {
+            width: 0_u32,
+            height: 0_u32,
+            offset: 0xffffffff,
         }
     }
 }

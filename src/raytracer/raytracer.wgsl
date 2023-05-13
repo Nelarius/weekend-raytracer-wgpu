@@ -45,6 +45,7 @@ struct VertexOutput {
 
 @group(3) @binding(0) var<storage, read> spheres: array<Sphere>;
 @group(3) @binding(1) var<storage, read> materials: array<Material>;
+@group(3) @binding(2) var<storage, read> textures: array<array<f32, 3>>;
 
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -98,7 +99,7 @@ fn uncharted2Tonemap(x: vec3<f32>) -> vec3<f32> {
     let e = 0.02;
     let f = 0.30;
     let w = 11.2;
-    return ((x*(a*x+c*b)+d*e)/(x*(a*x+b)+d*f))-e/f;
+    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
 }
 
 fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {
@@ -185,22 +186,21 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
         }
 
         default: {
-            // An aggressive pink color to indicate an error
-            return scatterLambertian(hit, Material(vec4(0.9921f, 0.24705f, 0.57254f, 1f), 0f, 0u), rngState);
+            return scatterMissingMaterial(rayIn, hit, rngState);
         }
     }
 }
 
 fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
-    let albedo = material.albedo_and_pad.rgb;
+    let albedo = textureLookup(material.desc, hit.u, hit.v);
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let fuzz = material.x;
     let scatterDirection = reflect(rayIn.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
-    let albedo = material.albedo_and_pad.rgb;
+    let albedo = textureLookup(material.desc, hit.u, hit.v);
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
@@ -233,6 +233,13 @@ fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState
 
     let scatteredRay = reflect(rayIn.direction, hit.n);
     return Scatter(Ray(hit.p, scatteredRay), vec3(1f));
+}
+
+fn scatterMissingMaterial(rayIn: Ray, hit: Intersection, rngState: ptr<function, u32>) -> Scatter {
+    let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
+    // An aggressive pink color to indicate an error
+    let albedo = vec3(0.9921f, 0.24705f, 0.57254f);
+    return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn refract(v: vec3<f32>, n: vec3<f32>, niOverNt: f32, refractDirection: ptr<function, vec3<f32>>) -> bool {
@@ -304,9 +311,27 @@ struct Sphere {
 }
 
 struct Material {
-    albedo_and_pad: vec4<f32>,
-    x: f32,
     id: u32,
+    desc: TextureDescriptor,
+    x: f32,
+}
+
+struct TextureDescriptor {
+    width: u32,
+    height: u32,
+    offset: u32,
+}
+
+fn textureLookup(desc: TextureDescriptor, u: f32, v: f32) -> vec3<f32> {
+    let u = clamp(u, 0f, 1f);
+    let v = 1f - clamp(v, 0f, 1f);
+
+    let j = u32(u * f32(desc.width) - 1f);
+    let i = u32(v * f32(desc.height) - 1f);
+    let idx = i * desc.width + j;
+
+    let elem = textures[desc.offset + idx];
+    return vec3(elem[0u], elem[1u], elem[2u]);
 }
 
 struct Ray {
@@ -322,6 +347,8 @@ struct Scatter {
 struct Intersection {
     p: vec3<f32>,
     n: vec3<f32>,
+    u: f32,
+    v: f32,
     t: f32,
 }
 
@@ -352,8 +379,12 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
 fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
     let n = (1f / sphere.radius) * (p - sphere.centerAndPad.xyz);
+    let theta = acos(-n.y);
+    let phi = atan2(-n.z, n.x) + pi;
+    let u = 0.5 * frac1Pi * phi;
+    let v = frac1Pi * theta;
 
-    return Intersection(p, n, t);
+    return Intersection(p, n, u, v, t);
 }
 
 fn rayPointAtParameter(ray: Ray, t: f32) -> vec3<f32> {

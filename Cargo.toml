@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bytemuck = { version = "1.13.1", features = ["derive"] }
 hw-skymodel = "0.1.1"
+image = "0.24.6"
 imgui = "0.11.0"
 imgui-wgpu = { git = "https://github.com/Nelarius/imgui-wgpu-rs/", rev = "1cd675a" }
 imgui-winit-support = "0.11.0"
