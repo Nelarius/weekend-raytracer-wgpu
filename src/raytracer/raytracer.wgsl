@@ -41,11 +41,10 @@ struct VertexOutput {
 
 @group(2) @binding(0) var<uniform> camera: Camera;
 @group(2) @binding(1) var<uniform> samplingParams: SamplingParams;
+@group(2) @binding(2) var<storage, read> skyState: SkyState;
 
 @group(3) @binding(0) var<storage, read> spheres: array<Sphere>;
 @group(3) @binding(1) var<storage, read> materials: array<Material>;
-
-@group(4) @binding(0) var<storage, read> skyState: SkyState;
 
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {

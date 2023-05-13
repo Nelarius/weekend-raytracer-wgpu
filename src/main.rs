@@ -365,7 +365,6 @@ impl GpuContext {
                     features: wgpu::Features::empty(),
                     limits: wgpu::Limits {
                         max_storage_buffer_binding_size: 512_u32 << 20,
-                        max_bind_groups: 5,
                         ..Default::default()
                     },
                     label: None,

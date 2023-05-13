@@ -16,10 +16,9 @@ pub struct Raytracer {
     image_bind_group: wgpu::BindGroup,
     camera_buffer: UniformBuffer,
     sampling_parameter_buffer: UniformBuffer,
+    hw_sky_state_buffer: StorageBuffer,
     parameter_bind_group: wgpu::BindGroup,
     scene_bind_group: wgpu::BindGroup,
-    hw_sky_state_buffer: StorageBuffer,
-    hw_sky_state_bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
     latest_render_params: RenderParams,
     render_progress: RenderProgress,
@@ -105,18 +104,34 @@ impl Raytracer {
             Some("sampling parameter buffer"),
         );
 
+        let hw_sky_state_buffer = {
+            let sky_state = render_params.sky.to_sky_state()?;
+
+            StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::bytes_of(&sky_state),
+                2_u32,
+                Some("sky state buffer"),
+            )
+        };
+
         let parameter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     camera_buffer.layout(wgpu::ShaderStages::FRAGMENT),
                     sampling_parameter_buffer.layout(wgpu::ShaderStages::FRAGMENT),
+                    hw_sky_state_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                 ],
                 label: Some("parameter layout"),
             });
 
         let parameter_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &parameter_bind_group_layout,
-            entries: &[camera_buffer.binding(), sampling_parameter_buffer.binding()],
+            entries: &[
+                camera_buffer.binding(),
+                sampling_parameter_buffer.binding(),
+                hw_sky_state_buffer.binding(),
+            ],
             label: Some("parameter bind group"),
         });
 
@@ -163,29 +178,6 @@ impl Raytracer {
             (scene_bind_group_layout, scene_bind_group)
         };
 
-        let hw_sky_state_buffer = {
-            let sky_state = render_params.sky.to_sky_state()?;
-
-            StorageBuffer::new_from_bytes(
-                device,
-                bytemuck::bytes_of(&sky_state),
-                0_u32,
-                Some("sky state buffer"),
-            )
-        };
-
-        let hw_sky_state_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[hw_sky_state_buffer.layout(wgpu::ShaderStages::FRAGMENT, true)],
-                label: Some("compute: sky state group layout"),
-            });
-
-        let hw_sky_state_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &hw_sky_state_bind_group_layout,
-            entries: &[hw_sky_state_buffer.binding()],
-            label: Some("sky state bind group"),
-        });
-
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             source: wgpu::ShaderSource::Wgsl(include_str!("raytracer.wgsl").into()),
             label: Some("raytracer.wgsl"),
@@ -197,7 +189,6 @@ impl Raytracer {
                 &image_bind_group_layout,
                 &parameter_bind_group_layout,
                 &scene_bind_group_layout,
-                &hw_sky_state_bind_group_layout,
             ],
             push_constant_ranges: &[],
             label: Some("raytracer layout"),
@@ -259,10 +250,9 @@ impl Raytracer {
             image_bind_group,
             camera_buffer,
             sampling_parameter_buffer,
+            hw_sky_state_buffer,
             parameter_bind_group,
             scene_bind_group,
-            hw_sky_state_buffer,
-            hw_sky_state_bind_group,
             vertex_buffer,
             pipeline,
             latest_render_params: *render_params,
@@ -304,7 +294,6 @@ impl Raytracer {
         render_pass.set_bind_group(1, &self.image_bind_group, &[]);
         render_pass.set_bind_group(2, &self.parameter_bind_group, &[]);
         render_pass.set_bind_group(3, &self.scene_bind_group, &[]);
-        render_pass.set_bind_group(4, &self.hw_sky_state_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
 
         let num_vertices = VERTICES.len() as u32;
