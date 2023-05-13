@@ -64,7 +64,7 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
     var pixel = vec3(imageBuffer[idx][0u], imageBuffer[idx][1u], imageBuffer[idx][2u]);
     {
         if samplingParams.clearAccumulatedSamples == 1u {
-            pixel = vec3(0f, 0f, 0f);
+            pixel = vec3(0f);
         }
 
         let rgb = samplePixel(x, y, &rngState);
@@ -109,7 +109,7 @@ fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {
     let invHeight = 1f / f32(imageHeight);
 
     let numSamples = samplingParams.numSamplesPerPixel;
-    var color = vec3(0f, 0f, 0f);
+    var color = vec3(0f);
     for (var i = 0u; i < numSamples; i += 1u) {
         let u = (f32(x) + rngNextFloat(rngState)) * invWidth;
         let v = (f32(y) + rngNextFloat(rngState)) * invHeight;
@@ -124,8 +124,8 @@ fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {
 fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
     var ray = primaryRay;
 
-    var color = vec3(0f, 0f, 0f);
-    var throughput = vec3(1f, 1f, 1f);
+    var color = vec3(0f);
+    var throughput = vec3(1f);
 
     for (var bounce = 0u; bounce < samplingParams.numBounces; bounce += 1u) {
         var intersection = Intersection();
@@ -208,7 +208,7 @@ fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr
 fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let refractionIndex = material.x;
 
-    var outwardNormal = vec3(0f, 0f, 0f);
+    var outwardNormal = vec3(0f);
     var niOverNt = 0f;
     var cosine = 0f;
     if dot(rayIn.direction, hit.n) > 0f {
@@ -221,7 +221,7 @@ fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState
         cosine = dot(normalize(-rayIn.direction), hit.n);
     };
 
-    var refractedDirection = vec3(0f, 0f, 0f);
+    var refractedDirection = vec3(0f);
     if refract(rayIn.direction, outwardNormal, niOverNt, &refractedDirection) {
         let reflectionProb = schlick(cosine, refractionIndex);
         var scatteredRay = refractedDirection;
@@ -229,11 +229,11 @@ fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState
             reflect(rayIn.direction, hit.n);
         }
 
-        return Scatter(Ray(hit.p, scatteredRay), vec3(1f, 1f, 1f));
+        return Scatter(Ray(hit.p, scatteredRay), vec3(1f));
     }
 
     let scatteredRay = reflect(rayIn.direction, hit.n);
-    return Scatter(Ray(hit.p, scatteredRay), vec3(1f, 1f, 1f));
+    return Scatter(Ray(hit.p, scatteredRay), vec3(1f));
 }
 
 fn refract(v: vec3<f32>, n: vec3<f32>, niOverNt: f32, refractDirection: ptr<function, vec3<f32>>) -> bool {
