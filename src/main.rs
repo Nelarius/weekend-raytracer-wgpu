@@ -427,8 +427,9 @@ impl FpsCounter {
 
 fn scene() -> Scene {
     let materials = vec![
-        Material::Lambertian {
-            albedo: Texture::new_from_color(glm::vec3(0.9_f32, 0.9_f32, 0.9_f32)),
+        Material::Checkerboard {
+            even: Texture::new_from_color(glm::vec3(0.5_f32, 0.7_f32, 0.8_f32)),
+            odd: Texture::new_from_color(glm::vec3(0.9_f32, 0.9_f32, 0.9_f32)),
         },
         Material::Lambertian {
             albedo: Texture::new_from_image("assets/moon.jpeg")

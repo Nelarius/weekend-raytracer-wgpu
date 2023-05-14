@@ -185,6 +185,10 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
             return scatterDielectric(rayIn, hit, material, rngState);
         }
 
+        case 3u: {
+            return scatterCheckerboard(rayIn, hit, material, rngState);
+        }
+
         default: {
             return scatterMissingMaterial(rayIn, hit, rngState);
         }
@@ -193,14 +197,14 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
 
 fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
-    let albedo = textureLookup(material.desc, hit.u, hit.v);
+    let albedo = textureLookup(material.desc1, hit.u, hit.v);
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let fuzz = material.x;
     let scatterDirection = reflect(rayIn.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
-    let albedo = textureLookup(material.desc, hit.u, hit.v);
+    let albedo = textureLookup(material.desc1, hit.u, hit.v);
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
@@ -233,6 +237,19 @@ fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState
 
     let scatteredRay = reflect(rayIn.direction, hit.n);
     return Scatter(Ray(hit.p, scatteredRay), vec3(1f));
+}
+
+fn scatterCheckerboard(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+    let sines = sin(5f * hit.p.x) * sin(5f * hit.p.y) * sin(5f * hit.p.z);
+    var albedo: vec3<f32>;
+    if sines < 0f {
+        albedo = textureLookup(material.desc1, hit.u, hit.v);
+    } else {
+        albedo = textureLookup(material.desc2, hit.u, hit.v);
+    }
+
+    let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
+    return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn scatterMissingMaterial(rayIn: Ray, hit: Intersection, rngState: ptr<function, u32>) -> Scatter {
@@ -312,7 +329,8 @@ struct Sphere {
 
 struct Material {
     id: u32,
-    desc: TextureDescriptor,
+    desc1: TextureDescriptor,
+    desc2: TextureDescriptor,
     x: f32,
 }
 

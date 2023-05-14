@@ -158,6 +158,9 @@ impl Raytracer {
                     Material::Dielectric { refraction_index } => {
                         GpuMaterial::dielectric(*refraction_index)
                     }
+                    Material::Checkerboard { odd, even } => {
+                        GpuMaterial::checkerboard(odd, even, &mut global_texture_data)
+                    }
                 };
 
                 material_data.push(gpu_material);
@@ -412,6 +415,7 @@ pub enum Material {
     Lambertian { albedo: Texture },
     Metal { albedo: Texture, fuzz: f32 },
     Dielectric { refraction_index: f32 },
+    Checkerboard { even: Texture, odd: Texture },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -656,7 +660,8 @@ impl GpuCamera {
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct GpuMaterial {
     id: u32,
-    desc: TextureDescriptor,
+    desc1: TextureDescriptor,
+    desc2: TextureDescriptor,
     x: f32,
 }
 
@@ -664,7 +669,8 @@ impl GpuMaterial {
     pub fn lambertian(albedo: &Texture, global_texture_data: &mut Vec<[f32; 3]>) -> Self {
         Self {
             id: 0_u32,
-            desc: Self::append_to_global_texture_data(albedo, global_texture_data),
+            desc1: Self::append_to_global_texture_data(albedo, global_texture_data),
+            desc2: TextureDescriptor::empty(),
             x: 0_f32,
         }
     }
@@ -672,7 +678,8 @@ impl GpuMaterial {
     pub fn metal(albedo: &Texture, fuzz: f32, global_texture_data: &mut Vec<[f32; 3]>) -> Self {
         Self {
             id: 1_u32,
-            desc: Self::append_to_global_texture_data(albedo, global_texture_data),
+            desc1: Self::append_to_global_texture_data(albedo, global_texture_data),
+            desc2: TextureDescriptor::empty(),
             x: fuzz,
         }
     }
@@ -680,8 +687,22 @@ impl GpuMaterial {
     pub fn dielectric(refraction_index: f32) -> Self {
         Self {
             id: 2_u32,
-            desc: TextureDescriptor::empty(),
+            desc1: TextureDescriptor::empty(),
+            desc2: TextureDescriptor::empty(),
             x: refraction_index,
+        }
+    }
+
+    pub fn checkerboard(
+        even: &Texture,
+        odd: &Texture,
+        global_texture_data: &mut Vec<[f32; 3]>,
+    ) -> Self {
+        Self {
+            id: 3_u32,
+            desc1: Self::append_to_global_texture_data(even, global_texture_data),
+            desc2: Self::append_to_global_texture_data(odd, global_texture_data),
+            x: 0_f32,
         }
     }
 
