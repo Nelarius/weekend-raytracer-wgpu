@@ -10,7 +10,7 @@ mod gpu_buffer;
 pub struct Raytracer {
     vertex_uniform_bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
-    image_dimensions_buffer: UniformBuffer,
+    frame_data_buffer: UniformBuffer,
     image_bind_group: wgpu::BindGroup,
     camera_buffer: UniformBuffer,
     sampling_parameter_buffer: UniformBuffer,
@@ -19,6 +19,7 @@ pub struct Raytracer {
     pipeline: wgpu::RenderPipeline,
     latest_render_params: RenderParams,
     render_progress: RenderProgress,
+    frame_number: u32,
 }
 
 impl Raytracer {
@@ -50,15 +51,8 @@ impl Raytracer {
             label: Some("uniforms bind group"),
         });
 
-        let image_dimensions_buffer = {
-            let image_dimensions = [render_params.viewport_size.0, render_params.viewport_size.1];
-            UniformBuffer::new_from_bytes(
-                device,
-                bytemuck::bytes_of(&image_dimensions),
-                0_u32,
-                Some("image dimensions buffer"),
-            )
-        };
+        let frame_data_buffer =
+            UniformBuffer::new(device, 16_u64, 0_u32, Some("frame data buffer"));
 
         let image_buffer = {
             let buffer = vec![[0_f32; 3]; max_viewport_resolution as usize];
@@ -70,32 +64,17 @@ impl Raytracer {
             )
         };
 
-        let rng_state_buffer = {
-            let seed_buffer: Vec<u32> = (0..max_viewport_resolution).collect();
-            StorageBuffer::new_from_bytes(
-                device,
-                bytemuck::cast_slice(seed_buffer.as_slice()),
-                2_u32,
-                Some("rng seed buffer"),
-            )
-        };
-
         let image_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    image_dimensions_buffer.layout(wgpu::ShaderStages::FRAGMENT),
+                    frame_data_buffer.layout(wgpu::ShaderStages::FRAGMENT),
                     image_buffer.layout(wgpu::ShaderStages::FRAGMENT, false),
-                    rng_state_buffer.layout(wgpu::ShaderStages::FRAGMENT, false),
                 ],
                 label: Some("image layout"),
             });
         let image_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &image_bind_group_layout,
-            entries: &[
-                image_dimensions_buffer.binding(),
-                image_buffer.binding(),
-                rng_state_buffer.binding(),
-            ],
+            entries: &[frame_data_buffer.binding(), image_buffer.binding()],
             label: Some("image bind group"),
         });
 
@@ -239,9 +218,11 @@ impl Raytracer {
 
         let render_progress = RenderProgress::new();
 
+        let frame_number = 1_u32;
+
         Self {
             vertex_uniform_bind_group,
-            image_dimensions_buffer,
+            frame_data_buffer,
             image_bind_group,
             camera_buffer,
             sampling_parameter_buffer,
@@ -251,6 +232,7 @@ impl Raytracer {
             pipeline,
             latest_render_params: *render_params,
             render_progress,
+            frame_number,
         }
     }
 
@@ -271,6 +253,17 @@ impl Raytracer {
             );
         }
 
+        {
+            let viewport_size = self.latest_render_params.viewport_size;
+            let frame_number = self.frame_number;
+            let frame_data = [viewport_size.0, viewport_size.1, frame_number];
+            queue.write_buffer(
+                &self.frame_data_buffer.handle(),
+                0,
+                bytemuck::cast_slice(&frame_data),
+            );
+        }
+
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.vertex_uniform_bind_group, &[]);
         render_pass.set_bind_group(1, &self.image_bind_group, &[]);
@@ -280,6 +273,8 @@ impl Raytracer {
 
         let num_vertices = VERTICES.len() as u32;
         render_pass.draw(0..num_vertices, 0..1);
+
+        self.frame_number += 1_u32;
     }
 
     pub fn set_render_params(
@@ -328,14 +323,6 @@ impl Raytracer {
 
         self.latest_render_params = render_params;
 
-        {
-            let image_dimensions = [render_params.viewport_size.0, render_params.viewport_size.1];
-            queue.write_buffer(
-                &self.image_dimensions_buffer.handle(),
-                0,
-                bytemuck::bytes_of(&image_dimensions),
-            );
-        }
         {
             let camera = GpuCamera::new(&render_params.camera, render_params.viewport_size);
             queue.write_buffer(&self.camera_buffer.handle(), 0, bytemuck::bytes_of(&camera));

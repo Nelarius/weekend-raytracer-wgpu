@@ -30,9 +30,8 @@ struct VertexOutput {
     @location(0) texCoords: vec2<f32>,
 }
 
-@group(1) @binding(0) var<uniform> imageDimensions: vec2<u32>;
+@group(1) @binding(0) var<uniform> frameData: vec4<u32>;
 @group(1) @binding(1) var<storage, read_write> imageBuffer: array<array<f32, 3>>;
-@group(1) @binding(2) var<storage, read_write> rngStateBuffer: array<u32>;
 
 @group(2) @binding(0) var<uniform> camera: Camera;
 @group(2) @binding(1) var<uniform> samplingParams: SamplingParams;
@@ -45,14 +44,18 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
     let u = in.texCoords.x;
     let v = in.texCoords.y;
 
-    let x = u32(u * f32(imageDimensions.x));
-    let y = u32(v * f32(imageDimensions.y));
+    let imageWidth = frameData.x;
+    let imageHeight = frameData.y;
+    let frameNumber = frameData.z;
 
-    let idx = imageDimensions.x * y + x;
+    let x = u32(u * f32(imageWidth));
+    let y = u32(v * f32(imageHeight));
 
-    var rngState = rngStateBuffer[idx];
-    var pixel = imageBuffer[idx];    
-    {
+    let idx = imageWidth * y + x;
+
+    var rngState = initRng(vec2(x, y), vec2(imageWidth, imageHeight), frameNumber);
+    var pixel = imageBuffer[idx];
+        {
         if samplingParams.clearAccumulatedSamples == 1u {
             pixel = array<f32, 3>(0f, 0f, 0f);
         }
@@ -64,7 +67,6 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
         pixel[2u] += rgb[2u];
     }
     imageBuffer[idx] = pixel;
-    rngStateBuffer[idx] = rngState;
 
     let invN = 1f / f32(samplingParams.accumulatedSamplesPerPixel);
     return vec4(
@@ -76,8 +78,10 @@ fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn samplePixel(x: u32, y: u32, rngState: ptr<function, u32>) -> vec3<f32> {
-    let invWidth = 1f / f32(imageDimensions.x);
-    let invHeight = 1f / f32(imageDimensions.y);
+    let imageWidth = frameData.x;
+    let imageHeight = frameData.y;
+    let invWidth = 1f / f32(imageWidth);
+    let invHeight = 1f / f32(imageHeight);
 
     let numSamples = samplingParams.numSamplesPerPixel;
     var color = vec3(0f, 0f, 0f);
@@ -340,6 +344,12 @@ fn rngNextFloat(state: ptr<function, u32>) -> f32 {
     return f32(*state) / f32(0xffffffffu);
 }
 
+fn initRng(pixel: vec2<u32>, resolution: vec2<u32>, frame: u32) -> u32 {
+    // Adapted from https://github.com/boksajak/referencePT
+    let seed = dot(pixel, vec2<u32>(1u, resolution.x)) ^ jenkinsHash(frame);
+    return jenkinsHash(seed);
+}
+
 fn rngNextInt(state: ptr<function, u32>) {
     // PCG random number generator
     // Based on https://www.shadertoy.com/view/XlGcRh
@@ -347,4 +357,14 @@ fn rngNextInt(state: ptr<function, u32>) {
     let oldState = *state + 747796405u + 2891336453u;
     let word = ((oldState >> ((oldState >> 28u) + 4u)) ^ oldState) * 277803737u;
     *state = (word >> 22u) ^ word;
+}
+
+fn jenkinsHash(input: u32) -> u32 {
+    var x = input;
+    x += x << 10u;
+    x ^= x >> 6u;
+    x += x << 3u;
+    x ^= x >> 11u;
+    x += x << 15u;
+    return x;
 }
