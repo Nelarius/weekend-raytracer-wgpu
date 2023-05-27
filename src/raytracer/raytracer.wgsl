@@ -1,15 +1,15 @@
-const epsilon = 0.001f;
+const EPSILON = 0.001f;
 
-const pi = 3.1415927f;
-const frac1Pi = 0.31830987f;
-const fracPi2 = 1.5707964f;
+const PI = 3.1415927f;
+const FRAC_1_PI = 0.31830987f;
+const FRAC_PI_2 = 1.5707964f;
 
-const minT = 0.001f;
-const maxT = 1000f;
+const MIN_T = 0.001f;
+const MAX_T = 1000f;
 
-const channelR = 0u;
-const channelG = 1u;
-const channelB = 2u;
+const CHANNEL_R = 0u;
+const CHANNEL_G = 1u;
+const CHANNEL_B = 2u;
 
 @group(0) @binding(0) var<uniform> vertexUniforms: VertexUniforms;
 
@@ -132,19 +132,19 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
         var materialIdx = 0u;
 
         // Intersection test
-        var closestT = maxT;
+        var closestT = MAX_T;
 
         for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
             let sphere = spheres[idx];
             var testIntersect = Intersection();
-            if rayIntersectSphere(ray, sphere, minT, closestT, &testIntersect) {
+            if rayIntersectSphere(ray, sphere, MIN_T, closestT, &testIntersect) {
                 closestT = testIntersect.t;
                 intersection = testIntersect;
                 materialIdx = sphere.materialIdx;
             }
         }
 
-        if closestT < maxT {
+        if closestT < MAX_T {
             // Scatter the ray from the surface
             let material = materials[materialIdx];
             var scatter = scatterRay(ray, intersection, material, rngState);
@@ -159,9 +159,9 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             let gamma = acos(clamp(dot(v, s), -1f, 1f));
 
             color = vec3(
-                radiance(theta, gamma, channelR),
-                radiance(theta, gamma, channelG),
-                radiance(theta, gamma, channelB)
+                radiance(theta, gamma, CHANNEL_R),
+                radiance(theta, gamma, CHANNEL_G),
+                radiance(theta, gamma, CHANNEL_B)
             );
 
             break;
@@ -202,7 +202,7 @@ fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<functi
 }
 
 fn evalLambertian(hit: Intersection, material: Material, wi: vec3<f32>) -> vec3<f32> {
-    return textureLookup(material.desc1, hit.u, hit.v) * frac1Pi * max(epsilon, dot(hit.n, wi));
+    return textureLookup(material.desc1, hit.u, hit.v) * FRAC_1_PI * max(EPSILON, dot(hit.n, wi));
 }
 
 fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
@@ -210,7 +210,7 @@ fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
 }
 
 fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
-    return max(epsilon, dot(hit.n, wi) * frac1Pi);
+    return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
 }
 
 fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
@@ -410,9 +410,9 @@ fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
     let n = (1f / sphere.radius) * (p - sphere.centerAndPad.xyz);
     let theta = acos(-n.y);
-    let phi = atan2(-n.z, n.x) + pi;
-    let u = 0.5 * frac1Pi * phi;
-    let v = frac1Pi * theta;
+    let phi = atan2(-n.z, n.x) + PI;
+    let u = 0.5 * FRAC_1_PI * phi;
+    let v = FRAC_1_PI * theta;
 
     return Intersection(p, n, u, v, t);
 }
@@ -447,7 +447,7 @@ fn rngNextVec3InCosineWeighedHemisphere(n: vec3<f32>, seed: ptr<function, u32>) 
     let sqrt_r2 = sqrt(r2);
 
     let z = sqrt(1f - r2);
-    let phi = 2f * pi * r1;
+    let phi = 2f * PI * r1;
     let x = cos(phi) * sqrt_r2;
     let y = sin(phi) * sqrt_r2;
 
@@ -473,7 +473,7 @@ fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
 
     // r^2 is distributed as U(0, 1).
     let r = sqrt(rngNextFloat(state));
-    let alpha = 2f * pi * rngNextFloat(state);
+    let alpha = 2f * PI * rngNextFloat(state);
 
     let x = r * cos(alpha);
     let y = r * sin(alpha);
@@ -484,8 +484,8 @@ fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
 fn rngNextVec3InUnitSphere(state: ptr<function, u32>) -> vec3<f32> {
     // probability density is uniformly distributed over r^3
     let r = pow(rngNextFloat(state), 0.33333f);
-    let theta = pi * rngNextFloat(state);
-    let phi = 2f * pi * rngNextFloat(state);
+    let theta = PI * rngNextFloat(state);
+    let phi = 2f * PI * rngNextFloat(state);
 
     let x = r * sin(theta) * cos(phi);
     let y = r * sin(theta) * sin(phi);
