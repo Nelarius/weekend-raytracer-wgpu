@@ -177,17 +177,17 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
             return scatterLambertian(hit, material, rngState);
         }
 
-        case 1u: {
-            return scatterMetal(rayIn, hit, material, rngState);
-        }
+        // case 1u: {
+        //     return scatterMetal(rayIn, hit, material, rngState);
+        // }
 
-        case 2u: {
-            return scatterDielectric(rayIn, hit, material, rngState);
-        }
+        // case 2u: {
+        //     return scatterDielectric(rayIn, hit, material, rngState);
+        // }
 
-        case 3u: {
-            return scatterCheckerboard(rayIn, hit, material, rngState);
-        }
+        // case 3u: {
+        //     return scatterCheckerboard(rayIn, hit, material, rngState);
+        // }
 
         default: {
             return scatterMissingMaterial(rayIn, hit, rngState);
@@ -196,9 +196,21 @@ fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<f
 }
 
 fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
-    let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
-    let albedo = textureLookup(material.desc1, hit.u, hit.v);
-    return Scatter(Ray(hit.p, scatterDirection), albedo);
+    let wi = sampleLambertian(hit, rngState);
+    let throughput = evalLambertian(hit, material, wi) / pdfLambertian(hit, wi);
+    return Scatter(Ray(hit.p, wi), throughput);
+}
+
+fn evalLambertian(hit: Intersection, material: Material, wi: vec3<f32>) -> vec3<f32> {
+    return textureLookup(material.desc1, hit.u, hit.v) * frac1Pi * max(epsilon, dot(hit.n, wi));
+}
+
+fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
+    return rngNextVec3InCosineWeighedHemisphere(hit.n, seed);
+}
+
+fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
+    return max(epsilon, dot(hit.n, wi) * frac1Pi);
 }
 
 fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
@@ -427,6 +439,32 @@ fn cameraMakeRay(camera: Camera, rngState: ptr<function, u32>, u: f32, v: f32) -
     let direction = camera.lowerLeftCorner + u * camera.horizontal + v * camera.vertical - origin;
 
     return Ray(origin, direction);
+}
+
+fn rngNextVec3InCosineWeighedHemisphere(n: vec3<f32>, seed: ptr<function, u32>) -> vec3<f32> {
+    let r1 = rngNextFloat(seed);
+    let r2 = rngNextFloat(seed);
+    let sqrt_r2 = sqrt(r2);
+
+    let z = sqrt(1f - r2);
+    let phi = 2f * pi * r1;
+    let x = cos(phi) * sqrt_r2;
+    let y = sin(phi) * sqrt_r2;
+
+    let onb = pixarOnb(n);
+
+    return onb * vec3(x, y, z);
+}
+
+fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
+    // https://www.jcgt.org/published/0006/01/01/paper-lowres.pdf
+    let s = select(-1f, 1f, n.z >= 0f);
+    let a = -1f / (s + n.z);
+    let b = n.x * n.y * a;
+    let u = vec3<f32>(1f + s * n.x * n.x * a, s * b, -s * n.x);
+    let v = vec3<f32>(b, s + n.y * n.y * a, -n.y);
+
+    return mat3x3<f32>(u, v, n);
 }
 
 fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
