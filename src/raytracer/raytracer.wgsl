@@ -174,20 +174,24 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
 fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     switch material.id {
         case 0u: {
-            return scatterLambertian(hit, material, rngState);
+            let texture = material.desc1;
+            return scatterLambertian(hit, texture, rngState);
         }
 
         // case 1u: {
         //     return scatterMetal(wo, hit, material, rngState);
         // }
 
-        // case 2u: {
-        //     return scatterDielectric(wo, hit, material, rngState);
-        // }
+        case 2u: {
+            let refractionIndex = material.x;
+            return scatterDielectric(wo, hit, refractionIndex, rngState);
+        }
 
-        // case 3u: {
-        //     return scatterCheckerboard(hit, material, rngState);
-        // }
+        case 3u: {
+            let texture1 = material.desc1;
+            let texture2 = material.desc2;
+            return scatterCheckerboard(hit, texture1, texture2, rngState);
+        }
 
         default: {
             return scatterMissingMaterial(hit, rngState);
@@ -195,14 +199,14 @@ fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<func
     }
 }
 
-fn scatterLambertian(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+fn scatterLambertian(hit: Intersection, texture: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
     let wi = sampleLambertian(hit, rngState);
-    let throughput = evalLambertian(hit, material, wi) / pdfLambertian(hit, wi);
+    let throughput = evalLambertian(hit, texture, wi) / pdfLambertian(hit, wi);
     return Scatter(Ray(hit.p, wi), throughput);
 }
 
-fn evalLambertian(hit: Intersection, material: Material, wi: vec3<f32>) -> vec3<f32> {
-    return textureLookup(material.desc1, hit.u, hit.v) * FRAC_1_PI * max(EPSILON, dot(hit.n, wi));
+fn evalLambertian(hit: Intersection, texture: TextureDescriptor, wi: vec3<f32>) -> vec3<f32> {
+    return textureLookup(texture, hit.u, hit.v) * FRAC_1_PI * max(EPSILON, dot(hit.n, wi));
 }
 
 fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
@@ -220,9 +224,7 @@ fn scatterMetal(wo: Ray, hit: Intersection, material: Material, rngState: ptr<fu
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
-fn scatterDielectric(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
-    let refractionIndex = material.x;
-
+fn scatterDielectric(wo: Ray, hit: Intersection, refractionIndex: f32, rngState: ptr<function, u32>) -> Scatter {
     var outwardNormal = vec3(0f);
     var niOverNt = 0f;
     var cosine = 0f;
@@ -251,17 +253,13 @@ fn scatterDielectric(wo: Ray, hit: Intersection, material: Material, rngState: p
     return Scatter(Ray(hit.p, wi), vec3(1f));
 }
 
-fn scatterCheckerboard(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+fn scatterCheckerboard(hit: Intersection, texture1: TextureDescriptor, texture2: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
     let sines = sin(5f * hit.p.x) * sin(5f * hit.p.y) * sin(5f * hit.p.z);
-    var albedo: vec3<f32>;
     if sines < 0f {
-        albedo = textureLookup(material.desc1, hit.u, hit.v);
+        return scatterLambertian(hit, texture1, rngState);
     } else {
-        albedo = textureLookup(material.desc2, hit.u, hit.v);
+        return scatterLambertian(hit, texture2, rngState);
     }
-
-    let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
-    return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn scatterMissingMaterial(hit: Intersection, rngState: ptr<function, u32>) -> Scatter {
