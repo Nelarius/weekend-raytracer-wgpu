@@ -344,8 +344,8 @@ fn textureLookup(desc: TextureDescriptor, u: f32, v: f32) -> vec3<f32> {
     let u = clamp(u, 0f, 1f);
     let v = 1f - clamp(v, 0f, 1f);
 
-    let j = u32(u * f32(desc.width) - 1f);
-    let i = u32(v * f32(desc.height) - 1f);
+    let j = u32(u * f32(desc.width));
+    let i = u32(v * f32(desc.height));
     let idx = i * desc.width + j;
 
     let elem = textures[desc.offset + idx];
