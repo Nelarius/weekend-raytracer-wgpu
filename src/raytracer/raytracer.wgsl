@@ -171,26 +171,26 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
     return throughput * color;
 }
 
-fn scatterRay(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     switch material.id {
         case 0u: {
             return scatterLambertian(hit, material, rngState);
         }
 
         // case 1u: {
-        //     return scatterMetal(rayIn, hit, material, rngState);
+        //     return scatterMetal(wo, hit, material, rngState);
         // }
 
         // case 2u: {
-        //     return scatterDielectric(rayIn, hit, material, rngState);
+        //     return scatterDielectric(wo, hit, material, rngState);
         // }
 
         // case 3u: {
-        //     return scatterCheckerboard(rayIn, hit, material, rngState);
+        //     return scatterCheckerboard(hit, material, rngState);
         // }
 
         default: {
-            return scatterMissingMaterial(rayIn, hit, rngState);
+            return scatterMissingMaterial(hit, rngState);
         }
     }
 }
@@ -213,45 +213,45 @@ fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
     return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
 }
 
-fn scatterMetal(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+fn scatterMetal(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let fuzz = material.x;
-    let scatterDirection = reflect(rayIn.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
+    let scatterDirection = reflect(wo.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
     let albedo = textureLookup(material.desc1, hit.u, hit.v);
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
-fn scatterDielectric(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+fn scatterDielectric(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let refractionIndex = material.x;
 
     var outwardNormal = vec3(0f);
     var niOverNt = 0f;
     var cosine = 0f;
-    if dot(rayIn.direction, hit.n) > 0f {
+    if dot(wo.direction, hit.n) > 0f {
         outwardNormal = -hit.n;
         niOverNt = refractionIndex;
-        cosine = refractionIndex * dot(normalize(rayIn.direction), hit.n);
+        cosine = refractionIndex * dot(normalize(wo.direction), hit.n);
     } else {
         outwardNormal = hit.n;
         niOverNt = 1f / refractionIndex;
-        cosine = dot(normalize(-rayIn.direction), hit.n);
+        cosine = dot(normalize(-wo.direction), hit.n);
     };
 
     var refractedDirection = vec3(0f);
-    if refract(rayIn.direction, outwardNormal, niOverNt, &refractedDirection) {
+    if refract(wo.direction, outwardNormal, niOverNt, &refractedDirection) {
         let reflectionProb = schlick(cosine, refractionIndex);
-        var scatteredRay = refractedDirection;
+        var wi = refractedDirection;
         if rngNextFloat(rngState) < reflectionProb {
-            reflect(rayIn.direction, hit.n);
+            reflect(wo.direction, hit.n);
         }
 
-        return Scatter(Ray(hit.p, scatteredRay), vec3(1f));
+        return Scatter(Ray(hit.p, wi), vec3(1f));
     }
 
-    let scatteredRay = reflect(rayIn.direction, hit.n);
-    return Scatter(Ray(hit.p, scatteredRay), vec3(1f));
+    let wi = reflect(wo.direction, hit.n);
+    return Scatter(Ray(hit.p, wi), vec3(1f));
 }
 
-fn scatterCheckerboard(rayIn: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
+fn scatterCheckerboard(hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     let sines = sin(5f * hit.p.x) * sin(5f * hit.p.y) * sin(5f * hit.p.z);
     var albedo: vec3<f32>;
     if sines < 0f {
@@ -264,7 +264,7 @@ fn scatterCheckerboard(rayIn: Ray, hit: Intersection, material: Material, rngSta
     return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
-fn scatterMissingMaterial(rayIn: Ray, hit: Intersection, rngState: ptr<function, u32>) -> Scatter {
+fn scatterMissingMaterial(hit: Intersection, rngState: ptr<function, u32>) -> Scatter {
     let scatterDirection = hit.n + rngNextVec3InUnitSphere(rngState);
     // An aggressive pink color to indicate an error
     let albedo = vec3(0.9921f, 0.24705f, 0.57254f);
