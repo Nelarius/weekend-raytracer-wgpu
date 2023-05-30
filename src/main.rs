@@ -437,7 +437,7 @@ fn scene() -> Scene {
         },
         Material::Metal {
             albedo: Texture::new_from_color(glm::vec3(1_f32, 0.85_f32, 0.57_f32)),
-            fuzz: 0.4_f32,
+            fuzz: 100_f32,
         },
         Material::Dielectric {
             refraction_index: 1.5_f32,

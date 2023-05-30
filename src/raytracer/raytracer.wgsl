@@ -178,9 +178,11 @@ fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<func
             return scatterLambertian(hit, texture, rngState);
         }
 
-        // case 1u: {
-        //     return scatterMetal(wo, hit, material, rngState);
-        // }
+        case 1u: {
+            let texture = material.desc1;
+            let n = material.x;
+            return scatterMetal(hit, texture, n, rngState);
+        }
 
         case 2u: {
             let refractionIndex = material.x;
@@ -224,17 +226,6 @@ fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
     return onb * vec3(x, y, z);
 }
 
-fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
-    return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
-}
-
-fn scatterMetal(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
-    let fuzz = material.x;
-    let scatterDirection = reflect(wo.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
-    let albedo = textureLookup(material.desc1, hit.u, hit.v);
-    return Scatter(Ray(hit.p, scatterDirection), albedo);
-}
-
 fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
     // https://www.jcgt.org/published/0006/01/01/paper-lowres.pdf
     let s = select(-1f, 1f, n.z >= 0f);
@@ -246,7 +237,59 @@ fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(u, v, n);
 }
 
-fn scatterDielectric(wo: Ray, hit: Intersection, refractionIndex: f32, rngState: ptr<function, u32>) -> Scatter {
+fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
+    return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
+}
+
+fn scatterMetal(hit: Intersection, texture: TextureDescriptor, n: f32, rngState: ptr<function, u32>) -> Scatter {
+    let wi = samplePhongSpecular(hit, n, rngState);
+    let throughput = evalPhongSpecular(hit, texture, n, wi) / pdfPhongSpecular(hit, n, wi);
+    return Scatter(Ray(hit.p, wi), throughput);
+}
+
+fn evalPhongSpecular(hit: Intersection, texture: TextureDescriptor, n: f32, wi: vec3<f32>) -> vec3<f32> {
+    let cosAlpha = cos(dot(normalize(hit.r), wi));  // NOTE normalization
+    let ks = textureLookup(texture, hit.u, hit.v);
+    return ks * 0.5f * FRAC_1_PI * (n + 2f) * pow(cosAlpha, n);
+}
+
+fn samplePhongSpecular(hit: Intersection, n: f32, seed: ptr<function, u32>) -> vec3<f32> {
+    let u1 = rngNextFloat(seed);
+    let u2 = rngNextFloat(seed);
+
+    let cosAlpha = pow(1f - u1, 1f / (n + 1f));
+    let sinAlpha = sqrt(1f - cosAlpha * cosAlpha);
+    let phi = 2f * PI * u2;
+
+    let x = sinAlpha * cos(phi);
+    let y = sinAlpha * sin(phi);
+    let z = cosAlpha;
+
+    return rotatePoint(getRotationFromZAxis(hit.r), vec3(x, y, z));
+}
+
+// Optimized point rotation using quaternion
+// Source: https://gamedev.stackexchange.com/questions/28395/rotating-vector3-by-a-quaternion
+fn rotatePoint(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
+    let qAxis = vec3(q.x, q.y, q.z);
+    return 2.0f * dot(qAxis, v) * qAxis + (q.w * q.w - dot(qAxis, qAxis)) * v + 2.0f * q.w * cross(qAxis, v);
+}
+
+// Calculates the rotation quaternion from (0, 0, 1) to the target vector.
+fn getRotationFromZAxis(input: vec3<f32>) -> vec4<f32> {
+    // Handle special case when the input nearly points in the opposite direction.
+    if input.z < -0.99999f {
+        return vec4(1f, 0f, 0f, 0f);
+    }
+
+    return normalize(vec4(-input.y, input.x, 0f, 1f + input.z));
+}
+
+fn pdfPhongSpecular(hit: Intersection, n: f32, wi: vec3<f32>) -> f32 {
+    let cosAlpha = cos(dot(hit.r, wi));
+    return max(EPSILON, (n + 1f) * 0.5f * FRAC_1_PI * pow(cosAlpha, n));
+}
+
     var outwardNormal = vec3(0f);
     var niOverNt = 0f;
     var cosine = 0f;
@@ -298,7 +341,7 @@ fn refract(v: vec3<f32>, n: vec3<f32>, niOverNt: f32, refractDirection: ptr<func
     let dt = dot(uv, n);
     let discriminant = 1f - niOverNt * niOverNt * (1f - dt * dt);
     if discriminant > 0f {
-        *refractDirection = niOverNt * (uv - dt * n) - sqrt(discriminant) * n;
+        *refractDirection = normalize(niOverNt * (uv - dt * n) - sqrt(discriminant) * n);
         return true;
     }
 
@@ -397,6 +440,7 @@ struct Scatter {
 struct Intersection {
     p: vec3<f32>,
     n: vec3<f32>,
+    r: vec3<f32>,
     u: f32,
     v: f32,
     t: f32,
@@ -429,12 +473,13 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
 fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
     let n = (1f / sphere.radius) * (p - sphere.centerAndPad.xyz);
+    let r = reflect(ray.direction, n);
     let theta = acos(-n.y);
     let phi = atan2(-n.z, n.x) + PI;
     let u = 0.5 * FRAC_1_PI * phi;
     let v = FRAC_1_PI * theta;
 
-    return Intersection(p, n, u, v, t);
+    return Intersection(p, n, r, u, v, t);
 }
 
 fn rayPointAtParameter(ray: Ray, t: f32) -> vec3<f32> {
