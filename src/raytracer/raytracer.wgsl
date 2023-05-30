@@ -178,9 +178,11 @@ fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<func
             return scatterLambertian(hit, texture, rngState);
         }
 
-        // case 1u: {
-        //     return scatterMetal(wo, hit, material, rngState);
-        // }
+        case 1u: {
+            let texture = material.desc1;
+            let fuzz = material.x;
+            return scatterMetal(wo, hit, texture, fuzz, rngState);
+        }
 
         case 2u: {
             let refractionIndex = material.x;
@@ -228,13 +230,6 @@ fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
     return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
 }
 
-fn scatterMetal(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
-    let fuzz = material.x;
-    let scatterDirection = reflect(wo.direction, hit.n) + material.x * rngNextVec3InUnitSphere(rngState);
-    let albedo = textureLookup(material.desc1, hit.u, hit.v);
-    return Scatter(Ray(hit.p, scatterDirection), albedo);
-}
-
 fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
     // https://www.jcgt.org/published/0006/01/01/paper-lowres.pdf
     let s = select(-1f, 1f, n.z >= 0f);
@@ -244,6 +239,12 @@ fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
     let v = vec3<f32>(b, s + n.y * n.y * a, -n.y);
 
     return mat3x3<f32>(u, v, n);
+}
+
+fn scatterMetal(wo: Ray, hit: Intersection, texture: TextureDescriptor, fuzz: f32, rngState: ptr<function, u32>) -> Scatter {
+    let scatterDirection = reflect(wo.direction, hit.n) + fuzz * rngNextVec3InUnitSphere(rngState);
+    let albedo = textureLookup(texture, hit.u, hit.v);
+    return Scatter(Ray(hit.p, scatterDirection), albedo);
 }
 
 fn scatterDielectric(rayIn: Ray, hit: Intersection, refractionIndex: f32, rngState: ptr<function, u32>) -> Scatter {
