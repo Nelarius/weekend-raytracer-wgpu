@@ -246,33 +246,54 @@ fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(u, v, n);
 }
 
-fn scatterDielectric(wo: Ray, hit: Intersection, refractionIndex: f32, rngState: ptr<function, u32>) -> Scatter {
+fn scatterDielectric(rayIn: Ray, hit: Intersection, refractionIndex: f32, rngState: ptr<function, u32>) -> Scatter {
+    let wo = rayIn.direction;
     var outwardNormal = vec3(0f);
     var niOverNt = 0f;
     var cosine = 0f;
-    if dot(wo.direction, hit.n) > 0f {
+    if dot(wo, hit.n) > 0f {
         outwardNormal = -hit.n;
         niOverNt = refractionIndex;
-        cosine = refractionIndex * dot(normalize(wo.direction), hit.n);
+        cosine = refractionIndex * dot(normalize(wo), hit.n);
     } else {
         outwardNormal = hit.n;
         niOverNt = 1f / refractionIndex;
-        cosine = dot(normalize(-wo.direction), hit.n);
+        cosine = dot(normalize(-wo), hit.n);
     };
 
     var refractedDirection = vec3(0f);
-    if refract(wo.direction, outwardNormal, niOverNt, &refractedDirection) {
+    if refract(wo, outwardNormal, niOverNt, &refractedDirection) {
         let reflectionProb = schlick(cosine, refractionIndex);
         var wi = refractedDirection;
         if rngNextFloat(rngState) < reflectionProb {
-            reflect(wo.direction, hit.n);
+            reflect(wo, hit.n);
         }
 
         return Scatter(Ray(hit.p, wi), vec3(1f));
     }
 
-    let wi = reflect(wo.direction, hit.n);
+    let wi = reflect(wo, hit.n);
     return Scatter(Ray(hit.p, wi), vec3(1f));
+}
+
+fn refract(v: vec3<f32>, n: vec3<f32>, niOverNt: f32, refractDirection: ptr<function, vec3<f32>>) -> bool {
+    // ni * sin(i) = nt * sin(t)
+    // sin(t) = sin(i) * (ni / nt)
+    let uv = normalize(v);
+    let dt = dot(uv, n);
+    let discriminant = 1f - niOverNt * niOverNt * (1f - dt * dt);
+    if discriminant > 0f {
+        *refractDirection = normalize(niOverNt * (uv - dt * n) - sqrt(discriminant) * n);
+        return true;
+    }
+
+    return false;
+}
+
+fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
+    var r0 = (1f - refractionIndex) / (1f + refractionIndex);
+    r0 = r0 * r0;
+    return r0 + pow((1f - r0) * (1f - cosine), 5f);
 }
 
 fn scatterCheckerboard(hit: Intersection, texture1: TextureDescriptor, texture2: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
@@ -289,26 +310,6 @@ fn scatterMissingMaterial(hit: Intersection, rngState: ptr<function, u32>) -> Sc
     // An aggressive pink color to indicate an error
     let albedo = vec3(0.9921f, 0.24705f, 0.57254f);
     return Scatter(Ray(hit.p, scatterDirection), albedo);
-}
-
-fn refract(v: vec3<f32>, n: vec3<f32>, niOverNt: f32, refractDirection: ptr<function, vec3<f32>>) -> bool {
-    // ni * sin(i) = nt * sin(t)
-    // sin(t) = sin(i) * (ni / nt)
-    let uv = normalize(v);
-    let dt = dot(uv, n);
-    let discriminant = 1f - niOverNt * niOverNt * (1f - dt * dt);
-    if discriminant > 0f {
-        *refractDirection = niOverNt * (uv - dt * n) - sqrt(discriminant) * n;
-        return true;
-    }
-
-    return false;
-}
-
-fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
-    var r0 = (1f - refractionIndex) / (1f + refractionIndex);
-    r0 = r0 * r0;
-    return r0 + pow((1f - r0) * (1f - cosine), 5f);
 }
 
 fn radiance(theta: f32, gamma: f32, channel: u32) -> f32 {
