@@ -8,3 +8,6 @@ assets/moon.jpeg
 
 assets/earthmap.jpeg
 * https://raytracing.github.io/images/earthmap.jpg
+
+assets/sun.jpeg
+* https://www.solarsystemscope.com/textures/

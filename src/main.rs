@@ -446,14 +446,38 @@ fn scene() -> Scene {
             albedo: Texture::new_from_image("assets/earthmap.jpeg")
                 .expect("Hardcoded path should be valid"),
         },
+        Material::Emissive {
+            emit: Texture::new_from_scaled_image("assets/sun.jpeg", 50.0)
+                .expect("Hardcoded path should be valid"),
+        },
+        Material::Lambertian {
+            albedo: Texture::new_from_color(glm::vec3(0.3_f32, 0.9_f32, 0.9_f32)),
+        },
+        Material::Emissive {
+            emit: Texture::new_from_color(glm::vec3(50.0_f32, 0.0_f32, 0.0_f32)),
+        },
+        Material::Emissive {
+            emit: Texture::new_from_color(glm::vec3(0.0_f32, 50.0_f32, 0.0_f32)),
+        },
+        Material::Emissive {
+            emit: Texture::new_from_color(glm::vec3(0.0, 0.0, 50.0)),
+        },
     ];
 
     let spheres = vec![
         Sphere::new(glm::vec3(0.0, -500.0, -1.0), 500.0, 0_u32),
-        Sphere::new(glm::vec3(0.0, 1.0, 0.0), 1.0, 3_u32),
+        // left row
+        Sphere::new(glm::vec3(-5.0, 1.0, -4.0), 1.0, 7_u32),
+        Sphere::new(glm::vec3(0.0, 1.0, -4.0), 1.0, 8_u32),
+        Sphere::new(glm::vec3(5.0, 1.0, -4.0), 1.0, 9_u32),
+        // middle row
         Sphere::new(glm::vec3(-5.0, 1.0, 0.0), 1.0, 2_u32),
-        Sphere::new(glm::vec3(5.0, 0.8, 1.5), 0.8, 1_u32),
-        Sphere::new(glm::vec3(5.0, 1.2, -1.5), 1.2, 4_u32),
+        Sphere::new(glm::vec3(0.0, 1.0, 0.0), 1.0, 3_u32),
+        Sphere::new(glm::vec3(5.0, 1.0, 0.0), 1.0, 6_u32),
+        // right row
+        Sphere::new(glm::vec3(-5.0, 0.8, 4.0), 0.8, 1_u32),
+        Sphere::new(glm::vec3(0.0, 1.2, 4.0), 1.2, 4_u32),
+        Sphere::new(glm::vec3(5.0, 2.0, 4.0), 2.0, 5_u32),
     ];
 
     Scene { spheres, materials }

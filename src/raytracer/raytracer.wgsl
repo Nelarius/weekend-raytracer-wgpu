@@ -131,8 +131,16 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
         var intersection = Intersection();
 
         if intersection(ray, &intersection) {
-            // Scatter the ray from the surface
             let material = materials[intersection.materialIdx];
+
+            if material.id == 4u {
+                let emissionTexture = material.desc1;
+                let emissionColor = textureLookup(emissionTexture, intersection.u, intersection.v);
+                color += emissionColor;
+
+                break;
+            }
+
             var scatter = scatterRay(ray, intersection, material, rngState);
             ray = scatter.ray;
             throughput *= scatter.albedo;
@@ -144,7 +152,7 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             let theta = acos(v.y);
             let gamma = acos(clamp(dot(v, s), -1f, 1f));
 
-            color = vec3(
+            color += vec3(
                 radiance(theta, gamma, CHANNEL_R),
                 radiance(theta, gamma, CHANNEL_G),
                 radiance(theta, gamma, CHANNEL_B)

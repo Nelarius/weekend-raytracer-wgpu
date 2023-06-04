@@ -8,21 +8,25 @@ pub struct Texture {
 
 impl Texture {
     pub fn new_from_image(path: &str) -> Result<Self, TextureError> {
+        Self::new_from_scaled_image(path, 1_f32)
+    }
+
+    pub fn new_from_scaled_image(path: &str, scale: f32) -> Result<Self, TextureError> {
         use std::fs::*;
         use std::io::BufReader;
 
         let file = File::open(path)?;
         let pixels: RgbaImage =
             image::load(BufReader::new(file), image::ImageFormat::Jpeg)?.into_rgba8();
-        let inv_255 = 1_f32 / 255_f32;
+        let tex_scale = scale / 255_f32;
         let dimensions = pixels.dimensions();
         let data = pixels
             .pixels()
             .map(|p| -> [f32; 3] {
                 [
-                    inv_255 * (p[0] as f32),
-                    inv_255 * (p[1] as f32),
-                    inv_255 * (p[2] as f32),
+                    tex_scale * (p[0] as f32),
+                    tex_scale * (p[1] as f32),
+                    tex_scale * (p[2] as f32),
                 ]
             })
             .collect();

@@ -161,6 +161,9 @@ impl Raytracer {
                     Material::Checkerboard { odd, even } => {
                         GpuMaterial::checkerboard(odd, even, &mut global_texture_data)
                     }
+                    Material::Emissive { emit } => {
+                        GpuMaterial::emissive(emit, &mut global_texture_data)
+                    }
                 };
 
                 material_data.push(gpu_material);
@@ -416,6 +419,7 @@ pub enum Material {
     Metal { albedo: Texture, fuzz: f32 },
     Dielectric { refraction_index: f32 },
     Checkerboard { even: Texture, odd: Texture },
+    Emissive { emit: Texture },
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -702,6 +706,15 @@ impl GpuMaterial {
             id: 3_u32,
             desc1: Self::append_to_global_texture_data(even, global_texture_data),
             desc2: Self::append_to_global_texture_data(odd, global_texture_data),
+            x: 0_f32,
+        }
+    }
+
+    pub fn emissive(emit: &Texture, global_texture_data: &mut Vec<[f32; 3]>) -> Self {
+        Self {
+            id: 4_u32,
+            desc1: Self::append_to_global_texture_data(emit, global_texture_data),
+            desc2: TextureDescriptor::empty(),
             x: 0_f32,
         }
     }
