@@ -129,24 +129,10 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
 
     for (var bounce = 0u; bounce < samplingParams.numBounces; bounce += 1u) {
         var intersection = Intersection();
-        var materialIdx = 0u;
 
-        // Intersection test
-        var closestT = MAX_T;
-
-        for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
-            let sphere = spheres[idx];
-            var testIntersect = Intersection();
-            if rayIntersectSphere(ray, sphere, MIN_T, closestT, &testIntersect) {
-                closestT = testIntersect.t;
-                intersection = testIntersect;
-                materialIdx = sphere.materialIdx;
-            }
-        }
-
-        if closestT < MAX_T {
+        if intersection(ray, &intersection) {
             // Scatter the ray from the surface
-            let material = materials[materialIdx];
+            let material = materials[intersection.materialIdx];
             var scatter = scatterRay(ray, intersection, material, rngState);
             ray = scatter.ray;
             throughput *= scatter.albedo;
@@ -169,6 +155,27 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
     }
 
     return throughput * color;
+}
+
+fn intersection(ray: Ray, intersection: ptr<function, Intersection>) -> bool {
+    var closestT = MAX_T;
+    var closestIntersection = Intersection();
+
+    for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
+        let sphere = spheres[idx];
+        var testIntersect = Intersection();
+        if rayIntersectSphere(ray, sphere, MIN_T, closestT, &testIntersect) {
+            closestT = testIntersect.t;
+            closestIntersection = testIntersect;
+        }
+    }
+
+    if closestT < MAX_T {
+        *intersection = closestIntersection;
+        return true;
+    }
+
+    return false;
 }
 
 fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
@@ -402,6 +409,7 @@ struct Intersection {
     u: f32,
     v: f32,
     t: f32,
+    materialIdx: u32,
 }
 
 fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<function, Intersection>) -> bool {
@@ -436,7 +444,7 @@ fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let u = 0.5 * FRAC_1_PI * phi;
     let v = FRAC_1_PI * theta;
 
-    return Intersection(p, n, u, v, t);
+    return Intersection(p, n, u, v, t, sphere.materialIdx);
 }
 
 fn rayPointAtParameter(ray: Ray, t: f32) -> vec3<f32> {
