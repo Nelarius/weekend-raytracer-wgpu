@@ -134,11 +134,9 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             let material = materials[intersection.materialIdx];
 
             if material.id == 4u {
-                let emissionTexture = material.desc1;
+                let emissionTexture = material.desc2;
                 let emissionColor = textureLookup(emissionTexture, intersection.u, intersection.v);
-                color += emissionColor;
-
-                break;
+                color += throughput * emissionColor;
             }
 
             var scatter = scatterRay(ray, intersection, material, rngState);
@@ -152,7 +150,7 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             let theta = acos(v.y);
             let gamma = acos(clamp(dot(v, s), -1f, 1f));
 
-            color += vec3(
+            color += throughput * vec3(
                 radiance(theta, gamma, CHANNEL_R),
                 radiance(theta, gamma, CHANNEL_G),
                 radiance(theta, gamma, CHANNEL_B)
@@ -162,7 +160,7 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
         }
     }
 
-    return throughput * color;
+    return color;
 }
 
 fn intersection(ray: Ray, intersection: ptr<function, Intersection>) -> bool {
@@ -188,7 +186,7 @@ fn intersection(ray: Ray, intersection: ptr<function, Intersection>) -> bool {
 
 fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     switch material.id {
-        case 0u: {
+        case 0u, 4u: {
             let texture = material.desc1;
             return scatterLambertian(hit, texture, rngState);
         }
