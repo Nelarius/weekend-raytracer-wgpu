@@ -141,7 +141,7 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
 
             var scatter = scatterRay(ray, intersection, material, rngState);
             ray = scatter.ray;
-            throughput *= scatter.albedo;
+            throughput *= scatter.throughput;
         } else {
             // The ray missed. Output background color.
             let v = normalize(ray.direction);
@@ -406,7 +406,7 @@ struct Ray {
 
 struct Scatter {
     ray: Ray,
-    albedo: vec3<f32>,
+    throughput: vec3<f32>,
 }
 
 struct Intersection {
