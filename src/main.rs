@@ -175,15 +175,15 @@ fn main() {
                                 );
                                 ui.same_line();
                                 ui.radio_button(
-                                    "2",
-                                    &mut render_params.sampling.num_samples_per_pixel,
-                                    2_u32,
-                                );
-                                ui.same_line();
-                                ui.radio_button(
                                     "4",
                                     &mut render_params.sampling.num_samples_per_pixel,
                                     4_u32,
+                                );
+                                ui.same_line();
+                                ui.radio_button(
+                                    "8",
+                                    &mut render_params.sampling.num_samples_per_pixel,
+                                    8_u32,
                                 );
 
                                 ui.text("max_samples_per_pixel");

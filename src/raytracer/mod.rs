@@ -543,7 +543,7 @@ impl Default for SamplingParams {
     fn default() -> Self {
         Self {
             max_samples_per_pixel: 128_u32,
-            num_samples_per_pixel: 2_u32,
+            num_samples_per_pixel: 1_u32,
             num_bounces: 8_u32,
         }
     }
