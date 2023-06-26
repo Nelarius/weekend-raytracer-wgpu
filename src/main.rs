@@ -166,7 +166,7 @@ fn main() {
 
                                 ui.text("Sampling parameters");
 
-                                ui.text("num_samples_per_pixel");
+                                ui.text("samples per pixel per frame");
                                 ui.same_line();
                                 ui.radio_button(
                                     "1",
@@ -186,7 +186,7 @@ fn main() {
                                     8_u32,
                                 );
 
-                                ui.text("max_samples_per_pixel");
+                                ui.text("total samples per pixel");
                                 ui.same_line();
                                 ui.radio_button(
                                     "128",
@@ -207,7 +207,7 @@ fn main() {
                                 );
 
                                 ui.slider(
-                                    "num_bounces",
+                                    "num bounces",
                                     4,
                                     10,
                                     &mut render_params.sampling.num_bounces,
@@ -229,7 +229,7 @@ fn main() {
                                     &mut fly_camera_controller.aperture,
                                 );
                                 ui.slider(
-                                    "focus_distance",
+                                    "focus distance",
                                     5.0,
                                     20.0,
                                     &mut fly_camera_controller.focus_distance,
