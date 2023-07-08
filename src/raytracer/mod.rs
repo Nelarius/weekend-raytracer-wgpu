@@ -183,12 +183,33 @@ impl Raytracer {
                 Some("textures buffer"),
             );
 
+            let light_indices: Vec<u32> = scene
+                .spheres
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| {
+                    matches!(
+                        scene.materials[s.material_idx as usize],
+                        Material::Emissive { .. }
+                    )
+                })
+                .map(|(idx, _)| idx as u32)
+                .collect();
+
+            let light_buffer = StorageBuffer::new_from_bytes(
+                device,
+                bytemuck::cast_slice(light_indices.as_slice()),
+                3_u32,
+                Some("lights buffer"),
+            );
+
             let scene_bind_group_layout =
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
                         sphere_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                         material_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                         texture_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
+                        light_buffer.layout(wgpu::ShaderStages::FRAGMENT, true),
                     ],
                     label: Some("scene layout"),
                 });
@@ -198,6 +219,7 @@ impl Raytracer {
                     sphere_buffer.binding(),
                     material_buffer.binding(),
                     texture_buffer.binding(),
+                    light_buffer.binding(),
                 ],
                 label: Some("scene bind group"),
             });

@@ -46,6 +46,7 @@ struct VertexOutput {
 @group(3) @binding(0) var<storage, read> spheres: array<Sphere>;
 @group(3) @binding(1) var<storage, read> materials: array<Material>;
 @group(3) @binding(2) var<storage, read> textures: array<array<f32, 3>>;
+@group(3) @binding(3) var<storage, read> lights: array<u32>;
 
 @fragment
 fn fsMain(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -189,7 +190,7 @@ fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<func
     switch material.id {
         case 0u: {
             let texture = material.desc1;
-            return scatterLambertian(hit, texture, rngState);
+            return scatterLight(hit, texture, rngState);
         }
 
         case 1u: {
@@ -242,6 +243,55 @@ fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
 
 fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
     return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
+}
+
+fn scatterLight(hit: Intersection, texture: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
+    // Select a random light using a uniform distribution.
+    let numLights = arrayLength(&lights);   // TODO: what about when there are no lights?
+    let lightIdx = rngNextIntInRange(rngState, 0u, numLights - 1u);
+    let sphereIdx = lights[lightIdx];
+    let sphere = spheres[sphereIdx];
+    let cosThetaMax = calcCosThetaMax(sphere, hit.p);
+
+    let wi = sampleLight(hit, cosThetaMax, rngState);
+    let pdf = pdfLight(hit, cosThetaMax) / f32(numLights);
+    let throughput = evalLambertian(hit, texture, wi) / pdf;
+
+    return Scatter(Ray(hit.p, wi), throughput);
+}
+
+fn sampleLight(hit: Intersection, cosThetaMax: f32, state: ptr<function, u32>) -> vec3<f32> {
+    // Generate a random direction using a cone subtended sphere.
+
+    let r1 = rngNextFloat(state);
+    let r2 = rngNextFloat(state);
+
+    let z = 1f + r2 * (cosThetaMax - 1f);
+    let phi = 2f * PI * r1;
+    let sinTheta = sqrt(1f - z * z);
+    let x = cos(phi) * sinTheta;
+    let y = sin(phi) * sinTheta;
+
+    let onb = pixarOnb(hit.n);
+
+    return onb * vec3(x, y, z);
+}
+
+fn pdfLight(hit: Intersection, cosThetaMax: f32) -> f32 {
+    // cosThetaMax is contained in [0, PI / 2].
+    return 1f / (2f * PI * (1f - cosThetaMax));
+}
+
+fn calcCosThetaMax(sphere: Sphere, p: vec3<f32>) -> f32 {
+    let c = sphere.centerAndPad.xyz;
+    let r = sphere.radius;
+
+    let toCenter = c - p;
+    let lengthSqr = dot(toCenter, toCenter);
+    let sinThetaMaxSqr = r * r / lengthSqr;
+    let cosThetaMax = sqrt(1f - sinThetaMaxSqr);
+
+    return cosThetaMax;
 }
 
 fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
@@ -314,9 +364,9 @@ fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
 fn scatterCheckerboard(hit: Intersection, texture1: TextureDescriptor, texture2: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
     let sines = sin(5f * hit.p.x) * sin(5f * hit.p.y) * sin(5f * hit.p.z);
     if sines < 0f {
-        return scatterLambertian(hit, texture1, rngState);
+        return scatterLight(hit, texture1, rngState);
     } else {
-        return scatterLambertian(hit, texture2, rngState);
+        return scatterLight(hit, texture2, rngState);
     }
 }
 
@@ -503,6 +553,11 @@ fn rngNextVec3InUnitSphere(state: ptr<function, u32>) -> vec3<f32> {
     let z = r * cos(theta);
 
     return vec3(x, y, z);
+}
+
+fn rngNextIntInRange(state: ptr<function, u32>, min: u32, max: u32) -> u32 {
+    rngNextInt(state);
+    return min + (*state) % (max - min);
 }
 
 fn rngNextFloat(state: ptr<function, u32>) -> f32 {
