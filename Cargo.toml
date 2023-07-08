@@ -10,7 +10,7 @@ bytemuck = { version = "1.13.1", features = ["derive"] }
 hw-skymodel = "0.1.1"
 image = "0.24.6"
 imgui = "0.11.0"
-imgui-wgpu = { git = "https://github.com/Nelarius/imgui-wgpu-rs/", rev = "1cd675a" }
+imgui-wgpu = { git = "https://github.com/Yatekii/imgui-wgpu-rs/", rev = "233eb3f" }
 imgui-winit-support = "0.11.0"
 nalgebra-glm = { version = "0.18.0", features = ["convert-bytemuck"] }
 pollster = "0.3.0"
