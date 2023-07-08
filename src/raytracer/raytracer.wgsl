@@ -134,9 +134,10 @@ fn rayColor(primaryRay: Ray, rngState: ptr<function, u32>) -> vec3<f32> {
             let material = materials[intersection.materialIdx];
 
             if material.id == 4u {
-                let emissionTexture = material.desc2;
+                let emissionTexture = material.desc1;
                 let emissionColor = textureLookup(emissionTexture, intersection.u, intersection.v);
                 color += throughput * emissionColor;
+                break;
             }
 
             var scatter = scatterRay(ray, intersection, material, rngState);
@@ -186,7 +187,7 @@ fn intersection(ray: Ray, intersection: ptr<function, Intersection>) -> bool {
 
 fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<function, u32>) -> Scatter {
     switch material.id {
-        case 0u, 4u: {
+        case 0u: {
             let texture = material.desc1;
             return scatterLambertian(hit, texture, rngState);
         }

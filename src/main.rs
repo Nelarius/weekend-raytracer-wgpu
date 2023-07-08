@@ -446,24 +446,20 @@ fn scene() -> Scene {
             albedo: Texture::new_from_image("assets/earthmap.jpeg")
                 .expect("Hardcoded path should be valid"),
         },
-        Material::LambertianEmissive {
-            albedo: Texture::new_from_color(glm::vec3(0.0, 0.0, 0.0)),
+        Material::Emissive {
             emit: Texture::new_from_scaled_image("assets/sun.jpeg", 50.0)
                 .expect("Hardcoded path should be valid"),
         },
         Material::Lambertian {
             albedo: Texture::new_from_color(glm::vec3(0.3_f32, 0.9_f32, 0.9_f32)),
         },
-        Material::LambertianEmissive {
-            albedo: Texture::new_from_color(glm::vec3(1.0, 0.3, 0.3)),
+        Material::Emissive {
             emit: Texture::new_from_color(glm::vec3(50.0_f32, 0.0_f32, 0.0_f32)),
         },
-        Material::LambertianEmissive {
-            albedo: Texture::new_from_color(glm::vec3(0.3, 1.0, 0.3)),
+        Material::Emissive {
             emit: Texture::new_from_color(glm::vec3(0.0_f32, 50.0_f32, 0.0_f32)),
         },
-        Material::LambertianEmissive {
-            albedo: Texture::new_from_color(glm::vec3(0.3, 0.3, 1.0)),
+        Material::Emissive {
             emit: Texture::new_from_color(glm::vec3(0.0, 0.0, 50.0)),
         },
     ];
