@@ -170,9 +170,8 @@ fn intersection(ray: Ray, intersection: ptr<function, Intersection>) -> bool {
     var closestIntersection = Intersection();
 
     for (var idx = 0u; idx < arrayLength(&spheres); idx = idx + 1u) {
-        let sphere = spheres[idx];
         var testIntersect = Intersection();
-        if rayIntersectSphere(ray, sphere, MIN_T, closestT, &testIntersect) {
+        if rayIntersectSphere(ray, idx, MIN_T, closestT, &testIntersect) {
             closestT = testIntersect.t;
             closestIntersection = testIntersect;
         }
@@ -190,7 +189,7 @@ fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<func
     switch material.id {
         case 0u: {
             let texture = material.desc1;
-            return scatterLight(hit, texture, rngState);
+            return scatterMixtureDensity(hit, texture, rngState);
         }
 
         case 1u: {
@@ -216,10 +215,21 @@ fn scatterRay(wo: Ray, hit: Intersection, material: Material, rngState: ptr<func
     }
 }
 
-fn scatterLambertian(hit: Intersection, texture: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
-    let wi = sampleLambertian(hit, rngState);
-    let throughput = evalLambertian(hit, texture, wi) / pdfLambertian(hit, wi);
-    return Scatter(Ray(hit.p, wi), throughput);
+fn scatterMixtureDensity(hit: Intersection, albedo: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
+    let scatterDirection = sampleMixtureDensity(hit, rngState);
+    let materialValue = evalLambertian(hit, albedo, scatterDirection);
+    let materialPdf = pdfLambertian(hit, scatterDirection);
+    let lightPdf = pdfLight(hit, scatterDirection);
+    let throughput = materialValue / max(EPSILON, (0.5f * materialPdf + 0.5f * lightPdf));
+    return Scatter(Ray(hit.p, scatterDirection), throughput);
+}
+
+fn sampleMixtureDensity(hit: Intersection, rngState: ptr<function, u32>) -> vec3<f32> {
+    if rngNextFloat(rngState) < 0.5f {
+        return sampleLambertian(hit, rngState);
+    } else {
+        return sampleLight(hit, rngState);
+    }
 }
 
 fn evalLambertian(hit: Intersection, texture: TextureDescriptor, wi: vec3<f32>) -> vec3<f32> {
@@ -236,53 +246,49 @@ fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
     return max(EPSILON, dot(hit.n, wi) * FRAC_1_PI);
 }
 
-fn scatterLight(hit: Intersection, texture: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
+fn sampleLight(hit: Intersection, rngState: ptr<function, u32>) -> vec3<f32> {
     // Select a random light using a uniform distribution.
     let numLights = arrayLength(&lights);   // TODO: what about when there are no lights?
-    let lightIdx = rngNextIntInRange(rngState, 0u, numLights - 1u);
+    let lightIdx = rngNextUintInRange(rngState, 0u, numLights - 1u);
     let sphereIdx = lights[lightIdx];
     let sphere = spheres[sphereIdx];
-    let cosThetaMax = calcCosThetaMax(sphere, hit.p);
 
-    let wi = sampleLight(hit, cosThetaMax, rngState);
-    let pdf = pdfLight(hit, cosThetaMax) / f32(numLights);
-    let throughput = evalLambertian(hit, texture, wi) / pdf;
-
-    return Scatter(Ray(hit.p, wi), throughput);
+    return sampleHemisphere(hit, sphere, rngState);
 }
 
-fn sampleLight(hit: Intersection, cosThetaMax: f32, state: ptr<function, u32>) -> vec3<f32> {
-    // Generate a random direction using a cone subtended sphere.
+fn sampleHemisphere(hit: Intersection, sphere: Sphere, rngState: ptr<function, u32>) -> vec3<f32> {
+    let v = rngNextInUnitHemisphere(rngState);
 
-    let r1 = rngNextFloat(state);
-    let r2 = rngNextFloat(state);
+    // Sample the hemisphere facing the intersection point.
+    let dir = normalize(hit.p - sphere.centerAndPad.xyz);
+    let onb = pixarOnb(dir);
 
-    let z = 1f + r2 * (cosThetaMax - 1f);
-    let phi = 2f * PI * r1;
-    let sinTheta = sqrt(1f - z * z);
-    let x = cos(phi) * sinTheta;
-    let y = sin(phi) * sinTheta;
+    let pointOnSphere = sphere.centerAndPad.xyz + onb * sphere.radius * v;
+    let toPointOnSphere = pointOnSphere - hit.p;
 
-    let onb = pixarOnb(hit.n);
-
-    return onb * vec3(x, y, z);
+    return normalize(toPointOnSphere);
 }
 
-fn pdfLight(hit: Intersection, cosThetaMax: f32) -> f32 {
-    // cosThetaMax is contained in [0, PI / 2].
-    return 1f / (2f * PI * (1f - cosThetaMax));
-}
+fn pdfLight(hit: Intersection, wi: vec3<f32>) -> f32 {
+    let ray = Ray(hit.p, wi);
+    var lightHit = Intersection();
+    var pdf = 0f;
 
-fn calcCosThetaMax(sphere: Sphere, p: vec3<f32>) -> f32 {
-    let c = sphere.centerAndPad.xyz;
-    let r = sphere.radius;
+    if intersection(ray, &lightHit) {
+        let sphereIdx = lightHit.sphereIdx;
+        let sphere = spheres[sphereIdx];
+        let numSpheres = arrayLength(&spheres);
+        let toLight = lightHit.p - hit.p;
+        let lengthSqr = dot(toLight, toLight);
+        let cosine = abs(dot(wi, lightHit.n));
+        let areaHalfSphere = 2f * PI * sphere.radius * sphere.radius;
 
-    let toCenter = c - p;
-    let lengthSqr = dot(toCenter, toCenter);
-    let sinThetaMaxSqr = r * r / lengthSqr;
-    let cosThetaMax = sqrt(1f - sinThetaMaxSqr);
+        // lengthSqr / cosine is the inverse of the geometric factor, as defined in
+        // "MULTIPLE IMPORTANCE SAMPLING 101".
+        pdf = lengthSqr / max(EPSILON, cosine * areaHalfSphere * f32(numSpheres));
+    }
 
-    return cosThetaMax;
+    return pdf;
 }
 
 fn pixarOnb(n: vec3<f32>) -> mat3x3<f32> {
@@ -355,9 +361,9 @@ fn schlick(cosine: f32, refractionIndex: f32) -> f32 {
 fn scatterCheckerboard(hit: Intersection, texture1: TextureDescriptor, texture2: TextureDescriptor, rngState: ptr<function, u32>) -> Scatter {
     let sines = sin(5f * hit.p.x) * sin(5f * hit.p.y) * sin(5f * hit.p.z);
     if sines < 0f {
-        return scatterLight(hit, texture1, rngState);
+        return scatterMixtureDensity(hit, texture1, rngState);
     } else {
-        return scatterLight(hit, texture2, rngState);
+        return scatterMixtureDensity(hit, texture2, rngState);
     }
 }
 
@@ -458,9 +464,11 @@ struct Intersection {
     v: f32,
     t: f32,
     materialIdx: u32,
+    sphereIdx: u32,
 }
 
-fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<function, Intersection>) -> bool {
+fn rayIntersectSphere(ray: Ray, sphereIdx: u32, tmin: f32, tmax: f32, hit: ptr<function, Intersection>) -> bool {
+    let sphere = spheres[sphereIdx];
     let oc = ray.origin - sphere.centerAndPad.xyz;
     let a = dot(ray.direction, ray.direction);
     let b = dot(oc, ray.direction);
@@ -470,13 +478,13 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
     if discriminant > 0f {
         var t = (-b - sqrt(b * b - a * c)) / a;
         if t < tmax && t > tmin {
-            *hit = sphereIntersection(ray, sphere, t);
+            *hit = sphereIntersection(ray, sphere, sphereIdx, t);
             return true;
         }
 
         t = (-b + sqrt(b * b - a * c)) / a;
         if t < tmax && t > tmin {
-            *hit = sphereIntersection(ray, sphere, t);
+            *hit = sphereIntersection(ray, sphere, sphereIdx, t);
             return true;
         }
     }
@@ -484,7 +492,7 @@ fn rayIntersectSphere(ray: Ray, sphere: Sphere, tmin: f32, tmax: f32, hit: ptr<f
     return false;
 }
 
-fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
+fn sphereIntersection(ray: Ray, sphere: Sphere, sphereIdx: u32, t: f32) -> Intersection {
     let p = rayPointAtParameter(ray, t);
     let n = (1f / sphere.radius) * (p - sphere.centerAndPad.xyz);
     let theta = acos(-n.y);
@@ -492,7 +500,8 @@ fn sphereIntersection(ray: Ray, sphere: Sphere, t: f32) -> Intersection {
     let u = 0.5 * FRAC_1_PI * phi;
     let v = FRAC_1_PI * theta;
 
-    return Intersection(p, n, u, v, t, sphere.materialIdx);
+    // TODO: passing sphereIdx in here just to pass it to Intersection
+    return Intersection(p, n, u, v, t, sphere.materialIdx, sphereIdx);
 }
 
 fn rayPointAtParameter(ray: Ray, t: f32) -> vec3<f32> {
@@ -532,6 +541,20 @@ fn rngNextInCosineWeightedHemisphere(state: ptr<function, u32>) -> vec3<f32> {
     return vec3<f32>(x, y, z);
 }
 
+fn rngNextInUnitHemisphere(state: ptr<function, u32>) -> vec3<f32> {
+    let r1 = rngNextFloat(state);
+    let r2 = rngNextFloat(state);
+
+    let phi = 2f * PI * r1;
+    let sinTheta = sqrt(1f - r2 * r2);
+
+    let x = cos(phi) * sinTheta;
+    let y = sin(phi) * sinTheta;
+    let z = r2;
+
+    return vec3(x, y, z);
+}
+
 fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
     // Generate numbers uniformly in a disk:
     // https://stats.stackexchange.com/a/481559
@@ -559,7 +582,7 @@ fn rngNextVec3InUnitSphere(state: ptr<function, u32>) -> vec3<f32> {
     return vec3(x, y, z);
 }
 
-fn rngNextIntInRange(state: ptr<function, u32>, min: u32, max: u32) -> u32 {
+fn rngNextUintInRange(state: ptr<function, u32>, min: u32, max: u32) -> u32 {
     rngNextInt(state);
     return min + (*state) % (max - min);
 }
