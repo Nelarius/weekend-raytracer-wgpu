@@ -226,19 +226,10 @@ fn evalLambertian(hit: Intersection, texture: TextureDescriptor, wi: vec3<f32>) 
     return textureLookup(texture, hit.u, hit.v) * FRAC_1_PI * max(EPSILON, dot(hit.n, wi));
 }
 
-fn sampleLambertian(hit: Intersection, seed: ptr<function, u32>) -> vec3<f32> {
-    let r1 = rngNextFloat(seed);
-    let r2 = rngNextFloat(seed);
-    let sqrt_r2 = sqrt(r2);
-
-    let z = sqrt(1f - r2);
-    let phi = 2f * PI * r1;
-    let x = cos(phi) * sqrt_r2;
-    let y = sin(phi) * sqrt_r2;
-
+fn sampleLambertian(hit: Intersection, rngState: ptr<function, u32>) -> vec3<f32> {
+    let v = rngNextInCosineWeightedHemisphere(rngState);
     let onb = pixarOnb(hit.n);
-
-    return onb * vec3(x, y, z);
+    return onb * v;
 }
 
 fn pdfLambertian(hit: Intersection, wi: vec3<f32>) -> f32 {
@@ -526,6 +517,19 @@ fn cameraMakeRay(camera: Camera, rngState: ptr<function, u32>, u: f32, v: f32) -
     let direction = camera.lowerLeftCorner + u * camera.horizontal + v * camera.vertical - origin;
 
     return Ray(origin, direction);
+}
+
+fn rngNextInCosineWeightedHemisphere(state: ptr<function, u32>) -> vec3<f32> {
+    let r1 = rngNextFloat(state);
+    let r2 = rngNextFloat(state);
+    let sqrt_r2 = sqrt(r2);
+
+    let z = sqrt(1f - r2);
+    let phi = 2f * PI * r1;
+    let x = cos(phi) * sqrt_r2;
+    let y = sin(phi) * sqrt_r2;
+
+    return vec3<f32>(x, y, z);
 }
 
 fn rngNextVec3InUnitDisk(state: ptr<function, u32>) -> vec3<f32> {
